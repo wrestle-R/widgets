@@ -54,7 +54,7 @@ internal object UnlockArt {
             canvas.save()
             canvas.clipPath(Path().apply { addRoundRect(RectF(0f, 0f, width, height), radius, radius, Path.Direction.CW) })
             when {
-                body < 64f || (body < 88f && height < 128f) -> compact()
+                body < 88f -> compact()
                 design.id == "orbit" -> orbit()
                 design.id == "signal" -> signal()
                 design.id == "ticket" -> ticket()
@@ -65,37 +65,83 @@ internal object UnlockArt {
         }
 
         private fun compact() {
-            val gap = inset / 2f
-            val x = if (wide) inset else width / 2f
-            val center = !wide
-            val markRadius = (body * .06f).coerceIn(2f, 5f)
-            val orbit = design.id == "orbit"
+            val artWidth = min(width, body * 2.4f)
+            val artHeight = min(height, body * 1.6f)
+            val left = (width - artWidth) / 2f
+            val top = (height - artHeight) / 2f
+            val centerX = width / 2f
+            val labelSize = (body * .15f).coerceIn(6f, 11f)
+            val shortLabel = if (reading.count == null) "Set up" else "Unlocks"
+            val textWidth = artWidth - 2f * inset
+            if (wide) {
+                compactWide(left, artWidth, labelSize, shortLabel)
+                return
+            }
             when (design.id) {
-                "orbit" -> ring(width / 2, height / 2, body * .38f, tint(accent, 130))
-                "ticket" -> round(0f, inset, 3f, height - inset, 1.5f, accent)
-                "terminal" -> round(width - inset - 4f, height - inset - 6f, width - inset, height - inset, 1f, accent)
-                "signal" -> if (reading.buckets.isNotEmpty()) {
-                    val peak = maxOf(1, reading.buckets.maxOrNull() ?: 1)
-                    val bar = (width - 2 * inset) / reading.buckets.size
-                    reading.buckets.forEachIndexed { index, count ->
-                        val left = inset + index * bar
-                        val bottom = height - gap
-                        round(left, bottom - maxOf(1f, body * .16f * count / peak), left + bar * .62f, bottom,
-                            1f, tint(accent, if (count == 0) 75 else 225))
-                    }
+                "orbit" -> {
+                    val centerY = top + artHeight * .44f
+                    orbitMark(centerX, centerY, body * .31f)
+                    number(centerX, centerY, body * .40f, body * .51f, center = true)
+                    lineText(shortLabel, centerX, top + artHeight * .88f, labelSize, textWidth, quiet, center = true)
                 }
-                else -> round(inset, gap, inset + 2 * markRadius, gap + 2 * markRadius, markRadius, accent)
+                "signal" -> {
+                    number(inset, top + artHeight * .31f, body * .47f, textWidth)
+                    lineText(shortLabel, inset, top + artHeight * .62f, labelSize, textWidth, quiet)
+                    chart(inset, width - inset, top + artHeight * .73f, top + artHeight * .87f)
+                }
+                "ticket" -> {
+                    round(0f, 0f, maxOf(2f, body * .045f), height, 1f, accent)
+                    perforation(top + artHeight * .66f, inset, width - inset, vertical = false)
+                    number(inset, top + artHeight * .38f, body * .5f, textWidth)
+                    lineText(shortLabel, inset, top + artHeight * .87f, labelSize, textWidth, quiet)
+                }
+                "terminal" -> {
+                    lineText("UNLOCKS", inset, top + artHeight * .25f, labelSize, textWidth, accent, mono = true)
+                    number(inset, top + artHeight * .51f, body * .44f, textWidth, mono = true)
+                    val baseline = top + artHeight * .84f
+                    val label = if (reading.count == null) "SET UP" else "TODAY"
+                    lineText(label, inset, baseline, labelSize * .85f, textWidth - 5f, quiet, mono = true)
+                    val cursor = body * .09f
+                    round(width - inset - cursor, baseline - cursor, width - inset, baseline, 1f, accent)
+                }
+                else -> {
+                    lock(inset, top + artHeight * .10f, body * .23f)
+                    number(inset, top + artHeight * .53f, body * .46f, textWidth)
+                    lineText(shortLabel, inset, top + artHeight * .85f, labelSize, textWidth, quiet)
+                }
             }
-            val available = if (orbit) width * .59f else width - inset * 2
-            val hasChart = design.id == "signal" && reading.count != null
-            number(x, height * if (hasChart) .36f else .48f, body * .5f, available, center,
-                mono = design.id == "terminal")
-            if (height >= 49f && design.id == "classic") {
-                lineText(if (reading.count == null) "Set up" else "Unlocks", x, height - gap - 1f,
-                    min(9f, body * .17f), available, quiet, center)
+        }
+
+        private fun compactWide(left: Float, artWidth: Float, labelSize: Float, label: String) {
+            val x = left + inset
+            val middle = left + artWidth * .52f
+            val right = left + artWidth - inset
+            val terminal = design.id == "terminal"
+            if (design.id == "orbit") {
+                val center = left + artWidth * .28f
+                orbitMark(center, height / 2f, body * .34f)
+                number(center, height / 2f, body * .42f, body * .55f, center = true)
+                lineText(label, middle, height * .56f, labelSize, right - middle, quiet)
+                return
             }
-            if (height >= 82f && hasChart) {
-                lineText("Today", x, height * .62f, 9f, available, quiet, center)
+            number(x, height * .41f, body * .48f, middle - x - 3f, mono = terminal)
+            lineText(label, x, height * .79f, labelSize, middle - x - 3f, quiet, mono = terminal)
+            when (design.id) {
+                "signal" -> chart(middle, right, height * .27f, height * .75f)
+                "ticket" -> {
+                    round(0f, 0f, maxOf(2f, body * .045f), height, 1f, accent)
+                    perforation(middle, inset, height - inset, vertical = true)
+                    val today = if (reading.count == null) "" else "Today"
+                    lineText(today, middle + inset / 2f, height * .56f, labelSize, right - middle - inset / 2f, accent)
+                }
+                "terminal" -> {
+                    val cursor = body * .13f
+                    round(right - cursor, height * .64f - cursor, right, height * .64f, 1f, accent)
+                }
+                else -> {
+                    val mark = body * .38f
+                    lock((middle + right - mark) / 2f, (height - mark) / 2f, mark)
+                }
             }
         }
 
@@ -115,9 +161,7 @@ internal object UnlockArt {
             val cx = if (wide) width * .31f else width / 2f
             val cy = if (tall) height * .42f else height / 2f
             val radius = body * .37f
-            ring(cx, cy, radius, tint(accent, 115))
-            ring(cx, cy, radius - 5f, tint(accent, 62))
-            circle(cx, cy - radius, 2.5f, accent)
+            orbitMark(cx, cy, radius)
             number(cx, cy + if (wide) 0f else -body * .035f, body * .42f, body * .58f, center = true)
             val labelX = if (wide) width * .58f else cx
             val labelY = if (wide) cy + 4f else cy + body * .25f
@@ -138,30 +182,13 @@ internal object UnlockArt {
             val available = if (wide) width * .46f - inset else width - 2 * inset
             number(numberX, readingTop + numberSize / 2f, numberSize, available)
             readingLabel(numberX, readingTop + numberSize + labelGap + labelSize, labelSize, available, quiet)
-            if (reading.count != null) {
-                val peak = maxOf(1, reading.buckets.maxOrNull() ?: 1)
-                val bar = (plotRight - plotLeft) / reading.buckets.size
-                reading.buckets.forEachIndexed { i, count ->
-                    val barHeight = maxOf(2f, (plotBottom - plotTop) * count / peak)
-                    val left = plotLeft + i * bar
-                    round(left, plotBottom - barHeight, left + bar * .72f, plotBottom, 2f,
-                        if (count == 0) tint(accent, 70) else accent)
-                }
-            }
+            chart(plotLeft, plotRight, plotTop, plotBottom)
         }
 
         private fun ticket() {
             val split = if (wide) width * .68f else height * .72f
             round(0f, 0f, 4f, height, 2f, accent)
-            paint.color = tint(accent, 120)
-            paint.strokeWidth = 1f
-            val length = if (wide) height else width
-            var offset = inset
-            while (offset < length - inset) {
-                if (wide) canvas.drawLine(split, offset, split, min(offset + 3f, height - inset), paint)
-                else canvas.drawLine(offset, split, min(offset + 3f, width - inset), split, paint)
-                offset += 6f
-            }
+            perforation(split, inset, (if (wide) height else width) - inset, vertical = wide)
             number(inset, height * if (wide) .54f else .39f, body * .57f,
                 if (wide) split - 2 * inset else width - 2 * inset)
             readingLabel(if (wide) split + inset / 2 else inset,
@@ -177,6 +204,36 @@ internal object UnlockArt {
             val label = if (reading.count == null) "SET UP" else "TODAY"
             lineText(label, inset, height - inset, labelSize, width - 2 * inset - 8f, quiet, mono = true)
             round(width - inset - 5f, height - inset - 7f, width - inset, height - inset, 1f, accent)
+        }
+
+        private fun orbitMark(cx: Float, cy: Float, radius: Float) {
+            ring(cx, cy, radius, tint(accent, 140))
+            ring(cx, cy, radius * .84f, tint(accent, 62))
+            circle(cx, cy - radius, maxOf(1.5f, radius * .075f), accent)
+        }
+
+        private fun chart(left: Float, right: Float, top: Float, bottom: Float) {
+            if (reading.buckets.isEmpty()) return
+            val peak = maxOf(1, reading.buckets.maxOrNull() ?: 1)
+            val bar = (right - left) / reading.buckets.size
+            reading.buckets.forEachIndexed { i, count ->
+                val x = left + i * bar
+                val barHeight = maxOf(1.25f, (bottom - top) * count / peak)
+                round(x, bottom - barHeight, x + bar * .68f, bottom, 1.5f,
+                    if (count == 0) tint(accent, 70) else accent)
+            }
+        }
+
+        private fun perforation(position: Float, start: Float, end: Float, vertical: Boolean) {
+            paint.color = tint(accent, 130)
+            paint.strokeWidth = 1f
+            var offset = start
+            while (offset < end) {
+                val stop = min(offset + 3f, end)
+                if (vertical) canvas.drawLine(position, offset, position, stop, paint)
+                else canvas.drawLine(offset, position, stop, position, paint)
+                offset += 6f
+            }
         }
 
         private fun lock(x: Float, y: Float, size: Float) {
