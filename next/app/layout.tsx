@@ -1,38 +1,31 @@
 import type { Metadata } from "next";
-import type { CSSProperties } from "react";
 import Link from "next/link";
-import { ArrowUpRight, Blocks, Download } from "lucide-react";
-import { issueForm, latestApk, repository } from "./links";
-import "@fontsource-variable/inter/wght.css";
-import "@fontsource/anton/latin-400.css";
+import { ArrowUpRight, Blocks, GitFork } from "lucide-react";
+import { issueForm, repository } from "./links";
+import "@fontsource-variable/inter";
+import "@fontsource-variable/space-grotesk";
 import "./style.css";
 
 export const metadata: Metadata = {
-  title: "Widgets — Make it yours",
+  title: "Widgets — Your home screen, your way",
   other: {"page-type":"software","site-kind":"software"},
-  description: "Find a widget, try it in light or dark, and make it part of your Android home screen.",
+  description: "An Android widget gallery. Preview the widgets, make them your own, and download the app.",
 };
 
 export default function Layout({ children }: { children: React.ReactNode }) {
-  const base = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
-  const art = {
-    "--art-dark": `url("${base}/red-glass.webp")`,
-    "--art-light": `url("${base}/light-glass.webp")`,
-  } as CSSProperties;
-  return <html lang="en" data-type="software"><body style={art}>
-    <a className="skip-link" href="#main">Skip to content</a>
+  return <html lang="en" data-type="software"><body>
     <header className="site-header"><div className="wrap nav">
-      <Link className="wordmark" href="/"><Blocks size={23}/> Widgets</Link>
+      <Link className="wordmark" href="/"><Blocks size={22}/> Widgets</Link>
       <nav aria-label="Main">
         <Link href="/#gallery">Gallery</Link>
         <Link href="/releases/">Releases</Link>
+        <a href={repository} aria-label="GitHub repository" className="icon-link"><GitFork size={19}/></a>
       </nav>
-      <a className="button primary nav-download" aria-label="Download Widgets" href={latestApk}><Download size={16}/><span>Download</span></a>
     </div></header>
     {children}
-    <footer className="footer"><div className="wrap footer-inner">
-      <Link className="wordmark" href="/"><Blocks size={20}/> Widgets</Link>
+    <footer className="footer wrap">
+      <Link className="wordmark" href="/"><Blocks size={19}/> Widgets</Link>
       <div><a href={issueForm}>Suggest a widget <ArrowUpRight size={15}/></a><a href={repository}>GitHub <ArrowUpRight size={15}/></a></div>
-    </div></footer>
+    </footer>
   </body></html>;
 }
