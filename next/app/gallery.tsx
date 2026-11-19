@@ -1,101 +1,69 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useState, type CSSProperties } from "react";
+import { BatteryCharging, CalendarDays, LockKeyholeOpen, Plus, SlidersHorizontal, Sun, Moon } from "lucide-react";
 import widgets from "../../shared/widgets.json";
 
 type Widget = (typeof widgets)[number];
+const icons = { unlocks: LockKeyholeOpen, battery: BatteryCharging, date: CalendarDays, counter: Plus };
+const settings = [
+  {key:"width", name:"Width", min:2, max:4, unit:" cells"},
+  {key:"height", name:"Height", min:2, max:3, unit:" cells"},
+  {key:"opacity", name:"Background opacity", min:60, max:100, unit:"%"},
+] as const;
+const defaultSize = {width:2, height:2, opacity:100, light:false};
 
-function Tile({ widget, value = widget.sample }: { widget: Widget; value?: string }) {
-  return <div className="tile">
-    <span className="tile-icon" aria-hidden="true" style={{color: widget.color}}>{widget.icon}</span>
+export function Tile({ widget, value = widget.sample, opacity = 100, light = false }: { widget: Widget; value?: string; opacity?: number; light?: boolean }) {
+  const Icon = icons[widget.id as keyof typeof icons];
+  return <div className="tile" data-light={light} style={{"--tile-opacity": opacity / 100, "--tile-color": widget.color} as CSSProperties}>
+    <span className="tile-icon"><Icon size={18} strokeWidth={2}/></span>
     <div><strong>{value}</strong><small>{widget.label}</small></div>
   </div>;
 }
 
-export default function Gallery({ downloadable }: { downloadable: boolean }) {
+export function Inspector() {
   const [selected, select] = useState(widgets[0]);
-  const [width, setWidth] = useState(2);
-  const [height, setHeight] = useState(2);
+  const [sizes, setSizes] = useState<Record<string, typeof defaultSize>>({});
   const [count, setCount] = useState(12);
-  const issueUrl = "https://github.com/wrestle-R/widgets/issues/new";
+  const size = sizes[selected.id] ?? defaultSize;
 
-  function suggest(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const data = new FormData(event.currentTarget);
-    const title = String(data.get("title")).trim();
-    const idea = String(data.get("idea")).trim();
-    const field = event.currentTarget.elements.namedItem(!title ? "title" : "idea") as HTMLInputElement | HTMLTextAreaElement;
-    if (!title || !idea) {
-      field.setCustomValidity("Enter a name and a description.");
-      field.reportValidity();
-      field.setCustomValidity("");
-      return;
-    }
-    const params = new URLSearchParams({title: `Widget idea: ${title}`, body: idea});
-    window.location.assign(`${issueUrl}?${params}`);
-  }
-
-  return <>
-    <header className="site-header"><div className="shell nav">
-      <a href="#" className="brand"><span className="logo" aria-hidden="true"><i/><i/><i/><i/></span>Widgets</a>
-      <nav aria-label="Main"><a href="#gallery">Gallery</a><a href="#suggest">Suggest a widget</a></nav>
-    </div></header>
-    <main className="shell">
-      <section className="hero">
-        <div className="intro">
-          <h1>Widgets for<br/>your home screen.</h1>
-          <p>See your phone unlocks, battery and more without opening an app. Try each widget at different sizes before you add it.</p>
-          <div className="actions">
-            <a className="button primary" href="#gallery">Explore widgets <span aria-hidden="true">↓</span></a>
-            {downloadable && <a className="button secondary" href={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/widgets.apk`} download>Download APK <span aria-hidden="true">↗</span></a>}
-          </div>
-          <p className="platform">Android 9 and up</p>
+  return <div className="studio">
+    <div className="widget-list" aria-label="Choose a widget">
+      {widgets.map(widget => {
+        const Icon = icons[widget.id as keyof typeof icons];
+        return <button key={widget.id} className="widget-choice" aria-pressed={selected.id === widget.id}
+          onClick={() => select(widget)}><Icon size={18}/> {widget.title}</button>;
+      })}
+    </div>
+    <div className="workbench">
+      <div className="resize-stage">
+        <span className="stage-label">Sample data</span>
+        <div className="sized" style={{width:`${size.width * 24}%`, height:`${size.height * 67}px`}}>
+          {selected.id === "counter" ?
+            <button className="interactive-tile" aria-label={`Count is ${count}. Add one`} onClick={() => setCount(n => n + 1)}>
+              <Tile widget={selected} opacity={size.opacity} light={size.light} value={String(count)} />
+            </button> :
+            <Tile widget={selected} opacity={size.opacity} light={size.light} />}
         </div>
-        <div className="wallpaper hero-wallpaper" aria-label="Sample Android home screen">
-          <div className="hero-tiles">{widgets.map(widget => <Tile key={widget.id} widget={widget}/>)}</div>
+      </div>
+      <div className="inspector">
+        <div className="inspector-title"><SlidersHorizontal size={17}/><h3>{selected.title}</h3></div>
+        <p>{selected.description}</p>
+        <div className="size-controls">
+          {settings.map(({key, name, min, max, unit}) => <div key={key}>
+            <label htmlFor={key}>{name}</label><output htmlFor={key}>{size[key]}{unit}</output>
+            <input id={key} type="range" min={min} max={max} value={size[key]} onChange={e => {
+              const value = Number(e.currentTarget.value);
+              setSizes(previous => ({...previous, [selected.id]: {...size, [key]: value}}));
+            }}/>
+          </div>)}
         </div>
-      </section>
-
-      <section id="gallery" className="section">
-        <div className="section-heading"><h2>Widget gallery</h2><p>Pick a widget to see how it fits.</p></div>
-        <div className="catalog">
-          <div className="widget-list" aria-label="Widgets">
-            {widgets.map(widget => <button key={widget.id} className="widget-choice" aria-pressed={selected.id === widget.id}
-              onClick={() => select(widget)}>
-              <span className="choice-icon" aria-hidden="true" style={{color:widget.color}}>{widget.icon}</span>
-              <span><strong>{widget.title}</strong><small>{widget.category}</small></span>
-              <span className="arrow" aria-hidden="true">›</span>
-            </button>)}
-          </div>
-          <div className="inspector">
-            <div className="preview-heading"><h3>{selected.title}</h3><span>Sample data</span></div>
-            <p>{selected.description}</p>
-            <div className="wallpaper resize-stage">
-              <div className="sized" style={{width: `${width * 25}%`, height: `${height * 70}px`}}>
-                {selected.id === "counter" ?
-                  <button className="interactive-tile" aria-label={`Count is ${count}. Add one`} onClick={() => setCount(count + 1)}><Tile widget={selected} value={String(count)}/></button> :
-                  <Tile widget={selected}/>}
-              </div>
-            </div>
-            <div className="size-controls">
-              <div><label htmlFor="widget-width">Width</label><output htmlFor="widget-width">{width} cells</output><input id="widget-width" type="range" min="2" max="4" value={width} onChange={e => setWidth(Number(e.target.value))}/></div>
-              <div><label htmlFor="widget-height">Height</label><output htmlFor="widget-height">{height} cells</output><input id="widget-height" type="range" min="2" max="3" value={height} onChange={e => setHeight(Number(e.target.value))}/></div>
-            </div>
-            <p className="hint">Actual dimensions depend on your launcher.</p>
-          </div>
+        <div className="theme-control" role="group" aria-label="Widget theme">
+          <button aria-pressed={!size.light} onClick={() => setSizes(previous => ({...previous, [selected.id]: {...size, light:false}}))}><Moon size={15}/> Dark</button>
+          <button aria-pressed={size.light} onClick={() => setSizes(previous => ({...previous, [selected.id]: {...size, light:true}}))}><Sun size={15}/> Light</button>
         </div>
-      </section>
-
-      <section id="suggest" className="section suggestions">
-        <div className="section-heading"><h2>Suggest a widget</h2><p>What would you like to see on your home screen?</p></div>
-        <form onSubmit={suggest}>
-          <label>Widget name<input name="title" required maxLength={80} placeholder="e.g. Days until my next trip"/></label>
-          <label>What should it do?<textarea name="idea" rows={4} required maxLength={1000}/></label>
-          <button className="button primary">Continue to GitHub</button>
-          <p className="hint">Review your issue on GitHub and attach a screenshot if you have one.</p>
-        </form>
-      </section>
-    </main>
-    <footer className="shell footer"><a href="#" className="brand">Widgets</a><a href="#gallery">Widget gallery ↑</a></footer>
-  </>;
+        <p className="hint">Cell dimensions depend on your Android launcher.</p>
+      </div>
+    </div>
+  </div>;
 }

@@ -13,3 +13,5 @@ next/public/widgets.apk
 
 *.tsbuildinfo
 next/next-env.d.ts
+
+/kotlin/.signing/

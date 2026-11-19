@@ -10,7 +10,6 @@ import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.graphics.Color
 import android.os.BatteryManager
 import android.os.Bundle
 import android.os.Process
@@ -21,16 +20,16 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-enum class WidgetKind(val key: String, val provider: Class<out GalleryWidget>) {
-    UNLOCKS("unlocks", UnlocksWidget::class.java),
-    BATTERY("battery", BatteryWidget::class.java),
-    DATE("date", DateWidget::class.java),
-    COUNTER("counter", CounterWidget::class.java);
+enum class WidgetKind(val key: String, val icon: Int, val provider: Class<out GalleryWidget>) {
+    UNLOCKS("unlocks", R.drawable.ic_unlocks, UnlocksWidget::class.java),
+    BATTERY("battery", R.drawable.ic_battery, BatteryWidget::class.java),
+    DATE("date", R.drawable.ic_date, DateWidget::class.java),
+    COUNTER("counter", R.drawable.ic_counter, CounterWidget::class.java);
 
     fun component(context: Context) = ComponentName(context, provider)
 }
 
-data class WidgetDetails(val title: String, val icon: String, val color: Int, val sample: Reading)
+data class WidgetDetails(val title: String, val sample: Reading)
 
 object Catalog {
     private var cached: Map<String, WidgetDetails>? = null
@@ -45,8 +44,8 @@ object Catalog {
         return (0 until json.length()).associate { index ->
             val row = json.getJSONObject(index)
             row.getString("id") to WidgetDetails(
-                row.getString("title"), row.getString("icon"),
-                Color.parseColor(row.getString("color")), Reading(row.getString("sample"), row.getString("label"))
+                row.getString("title"),
+                Reading(row.getString("sample"), row.getString("label"))
             )
         }
     }
@@ -106,6 +105,10 @@ abstract class GalleryWidget(private val kind: WidgetKind) : AppWidgetProvider()
         updateWidgets(context, kind, ids)
     }
 
+    override fun onDeleted(context: Context, ids: IntArray) {
+        WidgetAppearance.remove(context, ids)
+    }
+
     override fun onAppWidgetOptionsChanged(context: Context, manager: AppWidgetManager, id: Int, options: Bundle) {
         updateWidgets(context, kind, intArrayOf(id))
     }
@@ -151,17 +154,23 @@ fun updateWidgets(context: Context, kind: WidgetKind, ids: IntArray? = null, rea
             PendingIntent.FLAG_IMMUTABLE)
     }
 
-    val views = widgetViews(context, kind, value).apply {
-        setOnClickPendingIntent(android.R.id.background, click)
+    for (id in targetIds) {
+        val views = widgetViews(context, kind, value).apply {
+            if (WidgetAppearance.light(context, id)) {
+                setImageViewResource(R.id.widget_surface, R.drawable.widget_background_light)
+                setTextColor(R.id.widget_value, 0xff191d19.toInt())
+                setTextColor(R.id.widget_label, 0xff343c35.toInt())
+            }
+            setInt(R.id.widget_surface, "setImageAlpha", WidgetAppearance.alpha(context, id))
+            setOnClickPendingIntent(android.R.id.background, click)
+        }
+        manager.updateAppWidget(id, views)
     }
-    manager.updateAppWidget(targetIds, views)
 }
 
 fun widgetViews(context: Context, kind: WidgetKind, reading: Reading): RemoteViews {
-    val info = Catalog.details(context, kind)
     return RemoteViews(context.packageName, R.layout.widget).apply {
-        setTextViewText(R.id.widget_icon, info.icon)
-        setTextColor(R.id.widget_icon, info.color)
+        setImageViewResource(R.id.widget_icon, kind.icon)
         setTextViewText(R.id.widget_value, reading.value)
         setTextViewText(R.id.widget_label, reading.label)
     }

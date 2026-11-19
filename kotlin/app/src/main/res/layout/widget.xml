@@ -1,23 +1,26 @@
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@android:id/background"
-    android:layout_width="match_parent" android:layout_height="match_parent"
-    android:orientation="vertical" android:background="@drawable/widget_background"
-    android:padding="12dp" android:clipToOutline="true">
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@android:id/background" android:layout_width="match_parent"
+    android:layout_height="match_parent">
+    <ImageView android:id="@+id/widget_surface" android:layout_width="match_parent"
+        android:layout_height="match_parent" android:src="@drawable/widget_background"
+        android:scaleType="fitXY" android:importantForAccessibility="no" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent"
+        android:orientation="vertical" android:padding="12dp">
+        <ImageView android:id="@+id/widget_icon" android:layout_width="30dp"
+            android:layout_height="30dp" android:padding="6dp"
+            android:background="@drawable/widget_icon_background"
+            android:importantForAccessibility="no" />
 
-    <TextView android:id="@+id/widget_icon" android:layout_width="30dp"
-        android:layout_height="30dp" android:gravity="center" android:includeFontPadding="false"
-        android:background="@drawable/widget_icon_background" android:textSize="18sp"
-        android:importantForAccessibility="no" />
+        <FrameLayout android:importantForAccessibility="no" android:layout_width="1dp" android:layout_height="0dp" android:layout_weight="1" />
 
-    <FrameLayout android:importantForAccessibility="no" android:layout_width="1dp" android:layout_height="0dp" android:layout_weight="1" />
+        <TextView android:id="@+id/widget_value" android:layout_width="match_parent"
+            android:layout_height="30dp" android:textColor="#FFFFFF" android:includeFontPadding="false"
+            android:fontFamily="sans-serif-medium" android:gravity="bottom" android:maxLines="1"
+            android:autoSizeTextType="uniform" android:autoSizeMinTextSize="14sp"
+            android:autoSizeMaxTextSize="28sp" android:autoSizeStepGranularity="1sp" />
 
-    <TextView android:id="@+id/widget_value" android:layout_width="match_parent"
-        android:layout_height="30dp" android:textColor="#FFFFFF" android:includeFontPadding="false"
-        android:fontFamily="sans-serif-medium" android:gravity="bottom" android:maxLines="1"
-        android:autoSizeTextType="uniform" android:autoSizeMinTextSize="14sp"
-        android:autoSizeMaxTextSize="28sp" android:autoSizeStepGranularity="1sp" />
-
-    <TextView android:id="@+id/widget_label" android:layout_width="match_parent"
-        android:layout_height="24dp" android:textColor="#BFC4CA" android:includeFontPadding="false"
-        android:maxLines="2" android:ellipsize="end" android:textSize="10sp" />
-</LinearLayout>
+        <TextView android:id="@+id/widget_label" android:layout_width="match_parent"
+            android:layout_height="24dp" android:textColor="#BFC4CA" android:includeFontPadding="false"
+            android:maxLines="2" android:ellipsize="end" android:textSize="10sp" />
+    </LinearLayout>
+</FrameLayout>

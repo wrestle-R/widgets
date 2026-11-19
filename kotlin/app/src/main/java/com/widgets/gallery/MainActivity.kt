@@ -14,6 +14,7 @@ import android.provider.Settings
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Button
 import android.widget.Toast
@@ -21,8 +22,9 @@ import android.widget.Toast
 class MainActivity : Activity() {
     private val foregroundColor = 0xfff8fafc.toInt()
     private val muted = 0xffa3b0c3.toInt()
-    private val secondary = 0xff1e293b.toInt()
-    private val backgroundColor = 0xff020617.toInt()
+    private val secondary = 0xff232b2a.toInt()
+    private val backgroundColor = 0xff101418.toInt()
+    private val accent = 0xffd6f6a2.toInt()
     private val previews = mutableMapOf<WidgetKind, View>()
     private lateinit var access: Button
     private var resumed = false
@@ -47,12 +49,13 @@ class MainActivity : Activity() {
         setContentView(scroll)
 
         content.addView(text("Widgets", 21, foregroundColor, bold = true).apply {
-            setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.app_icon, 0, 0, 0)
-            compoundDrawablePadding = dp(10)
+            val logo = getDrawable(R.drawable.app_icon)?.apply { setBounds(0, 0, dp(30), dp(30)) }
+            setCompoundDrawablesRelative(logo, null, null, null)
+            compoundDrawablePadding = dp(8)
             gravity = android.view.Gravity.CENTER_VERTICAL
         }, spaced(16))
-        content.addView(text("Widget gallery", 38, foregroundColor, bold = true))
-        content.addView(text("Add a widget and resize it from your home screen.", 15, muted), spaced(16))
+        content.addView(text("Widget gallery", 40, foregroundColor, bold = true).apply { letterSpacing = -.055f })
+        content.addView(text("Pick a widget for your home screen.", 15, muted), spaced(16))
 
         access = button("Enable Usage Access") {
             AlertDialog.Builder(this).setTitle("Phone unlocks")
@@ -66,7 +69,12 @@ class MainActivity : Activity() {
                     }
                 }.show()
         }
-        content.addView(access, spaced(14))
+        content.addView(access, spaced(10))
+        content.addView(button("Widget appearance") { WidgetAppearance.show(this) }.apply {
+            setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_appearance, 0, 0, 0)
+            compoundDrawablePadding = dp(8)
+            gravity = android.view.Gravity.CENTER_VERTICAL or android.view.Gravity.START
+        }, spaced(16))
 
         for (group in WidgetKind.entries.chunked(2)) {
             val row = LinearLayout(this).apply { isBaselineAligned = false }
@@ -95,14 +103,13 @@ class MainActivity : Activity() {
     private fun galleryCard(kind: WidgetKind): View {
         val widget = Catalog.details(this, kind)
         val card = column().apply {
-            background = shape(0xff0f172a.toInt(), 16, 0xff26354b.toInt())
+            background = shape(0xff171e22.toInt(), 16, 0xff343e43.toInt())
             setPadding(dp(10), dp(10), dp(10), dp(8))
         }
 
         val preview = layoutInflater.inflate(R.layout.widget, card, false)
-        preview.findViewById<TextView>(R.id.widget_icon).apply {
-            text = widget.icon
-            setTextColor(widget.color)
+        preview.findViewById<ImageView>(R.id.widget_icon).apply {
+            setImageResource(kind.icon)
         }
         if (kind == WidgetKind.COUNTER) {
             preview.isFocusable = true
@@ -118,6 +125,7 @@ class MainActivity : Activity() {
         })
         card.addView(button("Add to home") { pin(kind) }.apply {
             contentDescription = "Add ${widget.title} to home"
+            setTextColor(accent)
             textSize = 13f
         }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
         return card

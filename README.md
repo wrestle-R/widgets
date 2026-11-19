@@ -6,4 +6,4 @@ This one's a gallery of Android widgets, starting with one that counts how often
 
 ![The Widgets website with previews of four Android widgets](docs/gallery.png)
 
-Got an idea? [Open an issue](https://github.com/wrestle-R/widgets/issues/new) with a screenshot or a wall of text. I'll see what I can turn into a widget. Pull requests are welcome too.
+Got an idea? [Open an issue](https://github.com/wrestle-R/widgets/issues/new?template=widget-idea.yml) with a screenshot or a wall of text. I'll see what I can turn into a widget. Pull requests are welcome too.

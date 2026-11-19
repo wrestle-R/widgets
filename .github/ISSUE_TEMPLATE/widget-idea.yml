@@ -1,0 +1,18 @@
+name: Suggest a widget
+description: Share an idea, a sketch, or a screenshot for an Android widget.
+title: "Widget idea: "
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What should the widget do?
+      description: Describe what you would want to see or do from your home screen.
+    validations:
+      required: true
+  - type: upload
+    id: references
+    attributes:
+      label: Images
+      description: Attach screenshots or sketches that show what you have in mind.
+    validations:
+      required: false
