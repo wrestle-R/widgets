@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ArrowUpRight, Download } from "lucide-react";
-import { repository } from "../links";
+import { latestApk, repository } from "../links";
 
 type Release = {
   tag_name: string;
@@ -27,7 +27,26 @@ export function ReleaseHistory() {
     return () => controller.abort();
   }, []);
 
-  return <section className="release-history" aria-labelledby="history-heading">
+  const latest = Array.isArray(history)
+    ? history.find(release => release.assets.some(asset => asset.name === "widgets.apk"))
+    : undefined;
+
+  return <>
+    <header className="release-header">
+      <div>
+        <h1>Releases.</h1>
+        <p>Download Widgets for Android 9 and up.</p>
+        <div className="actions">
+          <a className="button primary" href={latestApk}><Download size={18}/> Download latest APK</a>
+          <a className="text-link" href={`${repository}/releases`}>View on GitHub <ArrowUpRight size={15}/></a>
+        </div>
+      </div>
+      <div className="release-feature">
+        <span>Latest release</span>
+        {latest && <strong>{latest.tag_name}</strong>}
+      </div>
+    </header>
+    <section className="release-history" aria-labelledby="history-heading">
     <h2 id="history-heading">Version history</h2>
     {history === undefined && <p role="status">Loading releases…</p>}
     {history === "error" && <p>Open <a href={`${repository}/releases`}>GitHub releases</a> for version history.</p>}
@@ -43,5 +62,5 @@ export function ReleaseHistory() {
           </div>
         </li>;
       })}</ul>)}
-  </section>;
+  </section></>;
 }
