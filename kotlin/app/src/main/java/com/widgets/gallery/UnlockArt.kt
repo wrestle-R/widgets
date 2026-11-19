@@ -54,7 +54,7 @@ internal object UnlockArt {
             canvas.save()
             canvas.clipPath(Path().apply { addRoundRect(RectF(0f, 0f, width, height), radius, radius, Path.Direction.CW) })
             when {
-                body < 74f -> compact()
+                body < 64f || (body < 88f && height < 128f) -> compact()
                 design.id == "orbit" -> orbit()
                 design.id == "signal" -> signal()
                 design.id == "ticket" -> ticket()
@@ -87,21 +87,28 @@ internal object UnlockArt {
                 else -> round(inset, gap, inset + 2 * markRadius, gap + 2 * markRadius, markRadius, accent)
             }
             val available = if (orbit) width * .59f else width - inset * 2
-            val centeredValue = design.id != "signal" || reading.count == null
-            number(x, height * if (centeredValue) .51f else .44f, body * .53f, available, center,
+            val hasChart = design.id == "signal" && reading.count != null
+            number(x, height * if (hasChart) .36f else .48f, body * .5f, available, center,
                 mono = design.id == "terminal")
             if (height >= 49f && design.id == "classic") {
                 lineText(if (reading.count == null) "Set up" else "Unlocks", x, height - gap - 1f,
                     min(9f, body * .17f), available, quiet, center)
             }
+            if (height >= 82f && hasChart) {
+                lineText("Today", x, height * .62f, 9f, available, quiet, center)
+            }
         }
 
         private fun classic() {
-            lock(inset, inset, min(25f, body * .22f))
+            val iconSize = min(25f, body * .2f)
+            lock(inset, inset, iconSize)
             val x = inset
-            val bottom = if (tall) height - inset * 1.7f else height - inset
-            number(x, bottom - body * .27f, body * .49f, width - 2 * inset)
-            lineText(reading.label, x, bottom, min(12f, body * .14f), width - 2 * inset, quiet)
+            val bottom = height - inset
+            val labelSize = min(12f, body * .14f)
+            val numberTop = inset + iconSize + 3f
+            val numberBottom = bottom - labelSize - 3f
+            number(x, (numberTop + numberBottom) / 2f, min(body * .49f, numberBottom - numberTop), width - 2 * inset)
+            readingLabel(x, bottom, labelSize, width - 2 * inset, quiet)
         }
 
         private fun orbit() {
@@ -114,7 +121,7 @@ internal object UnlockArt {
             number(cx, cy + if (wide) 0f else -body * .035f, body * .42f, body * .58f, center = true)
             val labelX = if (wide) width * .58f else cx
             val labelY = if (wide) cy + 4f else cy + body * .25f
-            lineText(reading.label, labelX, labelY, 10f, if (wide) width * .37f else radius * 1.6f, quiet, !wide)
+            readingLabel(labelX, labelY, 10f, if (wide) width * .37f else radius * 1.6f, quiet, !wide)
         }
 
         private fun signal() {
@@ -123,10 +130,14 @@ internal object UnlockArt {
             val plotBottom = height - inset - if (wide) 0f else 6f
             val plotTop = if (wide) inset else height * if (tall) .58f else .69f
             val numberX = inset
-            val numberY = if (wide) height * .51f else height * if (tall) .39f else .43f
+            val labelSize = 10f
+            val labelGap = 4f
+            val readingBottom = if (wide) height - inset else plotTop - 5f
+            val numberSize = min(body * .42f, readingBottom - inset - labelSize - labelGap)
+            val readingTop = (inset + readingBottom - numberSize - labelSize - labelGap) / 2f
             val available = if (wide) width * .46f - inset else width - 2 * inset
-            number(numberX, numberY, body * .42f, available)
-            lineText(reading.label, numberX, numberY + body * .21f, 10f, available, quiet)
+            number(numberX, readingTop + numberSize / 2f, numberSize, available)
+            readingLabel(numberX, readingTop + numberSize + labelGap + labelSize, labelSize, available, quiet)
             if (reading.count != null) {
                 val peak = maxOf(1, reading.buckets.maxOrNull() ?: 1)
                 val bar = (plotRight - plotLeft) / reading.buckets.size
@@ -153,7 +164,7 @@ internal object UnlockArt {
             }
             number(inset, height * if (wide) .54f else .39f, body * .57f,
                 if (wide) split - 2 * inset else width - 2 * inset)
-            lineText(reading.label, if (wide) split + inset / 2 else inset,
+            readingLabel(if (wide) split + inset / 2 else inset,
                 if (wide) height * .61f else height - inset, 11f,
                 if (wide) width - split - inset else width - 2 * inset, accent)
         }
@@ -163,7 +174,7 @@ internal object UnlockArt {
             lineText("UNLOCKS", inset, inset + labelSize, labelSize, width - 2 * inset, accent, mono = true)
             val centerY = if (tall) height * .58f else height * .53f
             number(inset, centerY, body * .45f, width - 2 * inset, mono = true)
-            val label = if (reading.count == null) reading.label else "TODAY"
+            val label = if (reading.count == null) "SET UP" else "TODAY"
             lineText(label, inset, height - inset, labelSize, width - 2 * inset - 8f, quiet, mono = true)
             round(width - inset - 5f, height - inset - 7f, width - inset, height - inset, 1f, accent)
         }
@@ -191,14 +202,25 @@ internal object UnlockArt {
             canvas.drawText(value, x, y - (paint.ascent() + paint.descent()) / 2f, paint)
         }
 
+        private fun readingLabel(x: Float, baseline: Float, size: Float, maxWidth: Float, color: Int,
+            center: Boolean = false) {
+            val fallback = when (reading.label) {
+                "Enable Usage Access" -> "Set up"
+                "Unlock count unavailable" -> "Unavailable"
+                else -> "Today"
+            }
+            lineText(reading.label, x, baseline, size, maxWidth, color, center, fallback = fallback)
+        }
+
         private fun lineText(text: String, x: Float, baseline: Float, size: Float, maxWidth: Float, color: Int,
-            center: Boolean = false, mono: Boolean = false) {
+            center: Boolean = false, mono: Boolean = false, fallback: String = text) {
             paint.typeface = if (mono) Typeface.MONOSPACE else Typeface.DEFAULT
             paint.color = color
             paint.textSize = size
             paint.textAlign = if (center) Paint.Align.CENTER else Paint.Align.LEFT
-            val fit = paint.breakText(text, true, maxWidth, null)
-            val label = if (fit == text.length) text else text.take((fit - 1).coerceAtLeast(0)) + "…"
+            val label = if (paint.measureText(text) <= maxWidth) text else fallback
+            val measured = paint.measureText(label)
+            if (measured > maxWidth && maxWidth > 0) paint.textSize *= maxWidth / measured
             canvas.drawText(label, x, baseline, paint)
         }
 
