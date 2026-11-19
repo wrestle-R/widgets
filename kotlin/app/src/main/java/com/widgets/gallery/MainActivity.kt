@@ -6,7 +6,6 @@ import android.appwidget.AppWidgetManager
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.res.ColorStateList
-import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
@@ -20,10 +19,10 @@ import android.widget.Button
 import android.widget.Toast
 
 class MainActivity : Activity() {
-    private val ink = Color.rgb(36, 33, 57)
-    private val muted = Color.rgb(98, 94, 117)
-    private val purple = Color.rgb(74, 46, 125)
-    private val paper = Color.rgb(248, 246, 251)
+    private val foregroundColor = 0xfff8fafc.toInt()
+    private val muted = 0xffa3b0c3.toInt()
+    private val secondary = 0xff1e293b.toInt()
+    private val backgroundColor = 0xff020617.toInt()
     private val previews = mutableMapOf<WidgetKind, View>()
     private lateinit var access: Button
     private var resumed = false
@@ -31,7 +30,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val scroll = ScrollView(this).apply {
-            setBackgroundColor(paper)
+            setBackgroundColor(backgroundColor)
             isFillViewport = true
             clipToPadding = false
         }
@@ -47,11 +46,12 @@ class MainActivity : Activity() {
         scroll.addView(content)
         setContentView(scroll)
 
-        content.addView(text("Widgets", 21, purple, bold = true).apply {
+        content.addView(text("Widgets", 21, foregroundColor, bold = true).apply {
             setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.app_icon, 0, 0, 0)
             compoundDrawablePadding = dp(10)
+            gravity = android.view.Gravity.CENTER_VERTICAL
         }, spaced(16))
-        content.addView(text("Widget gallery", 38, ink, bold = true))
+        content.addView(text("Widget gallery", 38, foregroundColor, bold = true))
         content.addView(text("Add a widget and resize it from your home screen.", 15, muted), spaced(16))
 
         access = button("Enable Usage Access") {
@@ -95,7 +95,7 @@ class MainActivity : Activity() {
     private fun galleryCard(kind: WidgetKind): View {
         val widget = Catalog.details(this, kind)
         val card = column().apply {
-            background = shape(Color.WHITE, 16, Color.rgb(223, 217, 232))
+            background = shape(0xff0f172a.toInt(), 16, 0xff26354b.toInt())
             setPadding(dp(10), dp(10), dp(10), dp(8))
         }
 
@@ -113,7 +113,7 @@ class MainActivity : Activity() {
         }
         previews[kind] = preview
         card.addView(preview, LinearLayout.LayoutParams(-1, dp(132)))
-        card.addView(text(widget.title, 16, ink, bold = true).apply {
+        card.addView(text(widget.title, 16, foregroundColor, bold = true).apply {
             setPadding(dp(2), dp(8), dp(2), 0)
         })
         card.addView(button("Add to home") { pin(kind) }.apply {
@@ -159,10 +159,10 @@ class MainActivity : Activity() {
     private fun button(label: String, action: () -> Unit) = Button(this).apply {
         text = label
         isAllCaps = false
-        setTextColor(purple)
+        setTextColor(foregroundColor)
         minHeight = dp(48)
         setPadding(dp(10), dp(8), dp(10), dp(8))
-        background = RippleDrawable(ColorStateList.valueOf(0x22533087), shape(0xffeee5f8.toInt(), 10), null)
+        background = RippleDrawable(ColorStateList.valueOf(0x3394a3b8), shape(secondary, 10), null)
         setOnClickListener { action() }
     }
 

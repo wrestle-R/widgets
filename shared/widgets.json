@@ -1,6 +1,6 @@
 [
   {"id":"unlocks","title":"Phone unlocks","icon":"🔓","sample":"85","label":"Phone unlocks today","description":"See how often you unlock your phone today.","category":"Activity","color":"#ffc478"},
   {"id":"battery","title":"Battery","icon":"ϟ","sample":"76%","label":"Battery remaining","description":"Check your battery level at a glance.","category":"Device","color":"#c5ed9e"},
-  {"id":"date","title":"Date","icon":"▦","sample":"19","label":"Thursday, November","description":"Keep today's date on your home screen.","category":"Time","color":"#dfc2ff"},
-  {"id":"counter","title":"Tap counter","icon":"+","sample":"12","label":"Tap to count","description":"Count anything with a tap on your home screen.","category":"Activity","color":"#ffb9ca"}
+  {"id":"date","title":"Date","icon":"▦","sample":"19","label":"Thursday, November","description":"Keep today's date on your home screen.","category":"Time","color":"#afd3fb"},
+  {"id":"counter","title":"Tap counter","icon":"+","sample":"12","label":"Tap to count","description":"Count anything with a tap on your home screen.","category":"Activity","color":"#f8fafc"}
 ]

@@ -9,7 +9,7 @@
         android:background="@drawable/widget_icon_background" android:textSize="18sp"
         android:importantForAccessibility="no" />
 
-    <Space android:layout_width="1dp" android:layout_height="0dp" android:layout_weight="1" />
+    <FrameLayout android:importantForAccessibility="no" android:layout_width="1dp" android:layout_height="0dp" android:layout_weight="1" />
 
     <TextView android:id="@+id/widget_value" android:layout_width="match_parent"
         android:layout_height="30dp" android:textColor="#FFFFFF" android:includeFontPadding="false"
@@ -18,6 +18,6 @@
         android:autoSizeMaxTextSize="28sp" android:autoSizeStepGranularity="1sp" />
 
     <TextView android:id="@+id/widget_label" android:layout_width="match_parent"
-        android:layout_height="24dp" android:textColor="#C6C1CC" android:includeFontPadding="false"
+        android:layout_height="24dp" android:textColor="#BFC4CA" android:includeFontPadding="false"
         android:maxLines="2" android:ellipsize="end" android:textSize="10sp" />
 </LinearLayout>
