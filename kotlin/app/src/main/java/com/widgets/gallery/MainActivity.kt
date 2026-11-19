@@ -19,13 +19,13 @@ import android.view.WindowInsets
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.ImageView
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import java.util.UUID
-import kotlin.math.min
 
 class MainActivity : Activity() {
     private data class PlacedWidget(val kind: WidgetKind, val id: Int, val name: String)
@@ -33,6 +33,8 @@ class MainActivity : Activity() {
     private val ui by lazy { GalleryStyle(this) }
     private val manager by lazy { AppWidgetManager.getInstance(this) }
     private lateinit var scroll: ScrollView
+    private lateinit var toolbar: LinearLayout
+    private lateinit var bottomBar: LinearLayout
     private lateinit var content: LinearLayout
     private lateinit var body: LinearLayout
     private var kind = WidgetKind.UNLOCKS
@@ -63,24 +65,34 @@ class MainActivity : Activity() {
             draft = Appearance(savedInstanceState.getInt("opacity"), savedInstanceState.getBoolean("light"))
         }
 
-        content = ui.column().apply { setPadding(ui.dp(20), ui.dp(14), ui.dp(20), ui.dp(26)) }
-        val page = FrameLayout(this).apply {
-            val width = ui.dp(min(resources.configuration.screenWidthDp, 540))
-            addView(content, FrameLayout.LayoutParams(width, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
-        }
+        content = ui.column().apply { setPadding(ui.dp(18), 0, ui.dp(18), ui.dp(16)) }
+        toolbar = ui.column().apply { setPadding(ui.dp(18), ui.dp(4), ui.dp(18), ui.dp(10)) }
+        bottomBar = ui.column().apply { setPadding(ui.dp(18), ui.dp(8), ui.dp(18), ui.dp(5)) }
         scroll = ScrollView(this).apply {
-            setBackgroundColor(ui.background)
             isFillViewport = true
-            addView(page)
+            clipToPadding = false
+            addView(centered(content))
+        }
+        setContentView(ui.column().apply {
+            setBackgroundColor(ui.background)
+            addView(centered(toolbar))
+            addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+            addView(View(this@MainActivity).apply { setBackgroundColor(ui.line) }, LinearLayout.LayoutParams(-1, ui.dp(1)))
+            addView(centered(bottomBar))
             setOnApplyWindowInsetsListener { view, insets ->
-                if (android.os.Build.VERSION.SDK_INT >= 30) {
+                if (Build.VERSION.SDK_INT >= 30) {
                     val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
                     view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
                 }
                 insets
             }
-        }
-        setContentView(scroll)
+        })
+    }
+
+    private fun centered(column: LinearLayout) = FrameLayout(this).apply {
+        val available = resources.configuration.screenWidthDp
+        val width = if (available > 560) ui.dp(560) else -1
+        addView(column, FrameLayout.LayoutParams(width, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
     }
 
     override fun onResume() {
@@ -105,39 +117,46 @@ class MainActivity : Activity() {
         val offset = restoredScroll ?: if (preserveScroll) scroll.scrollY else 0
         restoredScroll = null
         content.removeAllViews()
+        toolbar.removeAllViews()
+        bottomBar.removeAllViews()
         with(ui) {
-            content.place(header())
-            content.place(equalRow(listOf(
-                button("Gallery", selected = !onHome) { showHome(false) },
-                button("On home", selected = onHome) { showHome(true) },
-            )), top = 16)
+            toolbar.place(header())
             body = column()
-            content.place(body, top = 24)
+            content.place(body)
         }
         if (onHome) renderHome() else renderGallery()
+        renderBottom()
         scroll.post { scroll.scrollTo(0, offset) }
     }
 
     private fun header() = with(ui) {
         LinearLayout(this@MainActivity).apply {
             gravity = Gravity.CENTER_VERTICAL
-            addView(text("Widgets", 20, heading = true).apply {
-                val mark = getDrawable(R.drawable.app_icon)?.apply { setBounds(0, 0, dp(28), dp(28)) }
-                setCompoundDrawablesRelative(mark, null, null, null)
-                compoundDrawablePadding = dp(8)
-                gravity = Gravity.CENTER_VERTICAL
-            }, LinearLayout.LayoutParams(0, -2, 1f))
+            addView(text("Widgets", 32, heading = true), LinearLayout.LayoutParams(0, -2, 1f))
             val target = if (dark) "Light" else "Dark"
             addView(button(target) { toggleTheme() }.apply {
                 contentDescription = "Switch to ${target.lowercase()} mode"
-                val icon = getDrawable(if (dark) R.drawable.ic_sun else R.drawable.ic_moon)?.mutate()?.apply {
-                    setBounds(0, 0, dp(17), dp(17))
-                    setTint(accent)
-                }
-                setCompoundDrawablesRelative(icon, null, null, null)
-                compoundDrawablePadding = dp(6)
+                icon(if (dark) R.drawable.ic_sun else R.drawable.ic_moon, color = accent)
             }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
         }
+    }
+
+    private fun renderBottom() = with(ui) {
+        if (!onHome) {
+            bottomBar.place(button("Add to home", primary = true) { pin(kind) }.apply {
+                minimumHeight = dp(52)
+                icon(R.drawable.ic_counter, color = currentTextColor)
+            })
+        }
+        val browse = button("Browse", selected = !onHome, quiet = true) { showHome(false) }.apply {
+            textSize = 12f
+            icon(R.drawable.ic_grid, above = true, color = if (onHome) muted else accent)
+        }
+        val home = button("On home", selected = onHome, quiet = true) { showHome(true) }.apply {
+            textSize = 12f
+            icon(R.drawable.ic_phone, above = true, color = if (onHome) accent else muted)
+        }
+        bottomBar.place(equalRow(listOf(browse, home)), top = if (onHome) 0 else 6)
     }
 
     private fun toggleTheme() {
@@ -158,7 +177,6 @@ class MainActivity : Activity() {
         val needsAccess = current == WidgetKind.UNLOCKS && !Readings.hasUsageAccess(this@MainActivity)
         val reading = if (needsAccess) details.sample else Readings.read(this@MainActivity, current)
 
-        body.place(text("Widget gallery", 38, heading = true))
         val preview = widgetPreview(current, reading).apply {
             styleWidget(this, Appearance(light = !dark))
             if (current == WidgetKind.COUNTER) {
@@ -171,7 +189,10 @@ class MainActivity : Activity() {
                 }
             }
         }
-        body.place(previewStage(preview, side = 166, sample = needsAccess), top = 16, height = 246)
+        val stageHeight = (resources.configuration.screenHeightDp * .36f).toInt().coerceIn(224, 344)
+        body.place(previewStage(preview, side = 174, sample = needsAccess), height = stageHeight)
+        body.place(text(details.title, 40, heading = true), top = 16)
+        body.place(text(details.description, 14, muted), top = 6)
 
         val selectors = WidgetKind.entries.map { item ->
             val label = when (item) {
@@ -186,24 +207,16 @@ class MainActivity : Activity() {
                     render(preserveScroll = true)
                 }
             }.apply {
-                val icon = getDrawable(item.icon)?.mutate()?.apply {
-                    setBounds(0, 0, dp(18), dp(18))
-                    setTint(if (item == current) accent else muted)
-                }
-                setCompoundDrawablesRelative(null, icon, null, null)
-                compoundDrawablePadding = dp(4)
+                icon(item.icon, above = true, color = if (item == current) accent else muted)
                 setPadding(dp(2), dp(8), dp(2), dp(8))
                 textSize = 12f
             }
         }
         val controlsPerRow = if (resources.configuration.screenWidthDp < 340 ||
             resources.configuration.fontScale >= 1.4f) 2 else 4
-        selectors.chunked(controlsPerRow).forEach { row -> body.place(equalRow(row), top = 10) }
-        body.place(text(details.title, 27, heading = true), top = 21)
-        body.place(text(details.description, 14, muted), top = 6)
-        body.place(button("Add to home", primary = true) { pin(current) }, top = 16)
+        selectors.chunked(controlsPerRow).forEach { row -> body.place(equalRow(row), top = 12) }
         if (needsAccess) {
-            body.place(button("Enable Usage Access") { askForUsageAccess() }, top = 8)
+            body.place(button("Enable Usage Access") { askForUsageAccess() }, top = 12)
         }
     }
 
@@ -213,7 +226,7 @@ class MainActivity : Activity() {
             val ids = manager.getAppWidgetIds(item.component(this@MainActivity)).sorted()
             ids.mapIndexed { index, id -> PlacedWidget(item, id, if (ids.size == 1) title else "$title ${index + 1}") }
         }
-        body.place(text("On your home screen", 36, heading = true))
+        body.place(text("On your home screen", 35, heading = true), top = 5)
         if (placed.isEmpty()) {
             body.place(text("Add a widget to change its theme and opacity here.", 15, muted), top = 10)
             body.place(button("Browse gallery", primary = true) { showHome(false) }, top = 20)
@@ -224,17 +237,7 @@ class MainActivity : Activity() {
             draft = null
         }
         if (placed.size > 1) {
-            for (items in placed.chunked(2)) {
-                body.place(equalRow(items.map { widget ->
-                    button(widget.name, selected = widget.id == selectedId) {
-                        if (selectedId != widget.id) {
-                            selectedId = widget.id
-                            draft = null
-                            render(preserveScroll = true)
-                        }
-                    }
-                }), top = 8)
-            }
+            body.place(placedPicker(placed), top = 14)
         }
 
         val saved = WidgetAppearance.read(this@MainActivity, selected.id)
@@ -245,8 +248,12 @@ class MainActivity : Activity() {
         body.place(text(selected.name, 26, heading = true), top = 18)
 
         body.place(equalRow(listOf(
-            button("Dark widget", selected = !appearance.light) { changeTheme(appearance = false, saved) },
-            button("Light widget", selected = appearance.light) { changeTheme(appearance = true, saved) },
+            button("Dark widget", selected = !appearance.light) { changeTheme(appearance = false, saved) }.apply {
+                icon(R.drawable.ic_moon, color = if (appearance.light) muted else accent)
+            },
+            button("Light widget", selected = appearance.light) { changeTheme(appearance = true, saved) }.apply {
+                icon(R.drawable.ic_sun, color = if (appearance.light) accent else muted)
+            },
         )), top = 12)
         val opacity = text(getString(R.string.widget_opacity_value, appearance.opacity), 14)
         body.place(opacity, top = 16)
@@ -280,6 +287,30 @@ class MainActivity : Activity() {
             })
         }, top = 2)
         body.place(save, top = 8)
+    }
+
+    private fun placedPicker(placed: List<PlacedWidget>) = with(ui) {
+        val row = LinearLayout(this@MainActivity)
+        var active: View? = null
+        for (widget in placed) {
+            val selected = widget.id == selectedId
+            val chip = button(widget.name, selected = selected) {
+                if (!selected) {
+                    selectedId = widget.id
+                    draft = null
+                    render(preserveScroll = true)
+                }
+            }.apply { icon(widget.kind.icon, size = 16, color = if (selected) accent else muted) }
+            row.addView(chip, LinearLayout.LayoutParams(-2, -2).apply {
+                if (row.childCount > 0) marginStart = dp(8)
+            })
+            if (selected) active = chip
+        }
+        HorizontalScrollView(this@MainActivity).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(row)
+            post { active?.let { scrollTo(it.left, 0) } }
+        }
     }
 
     private fun changeTheme(appearance: Boolean, saved: Appearance) {
