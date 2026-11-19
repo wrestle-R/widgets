@@ -6,181 +6,317 @@ import android.appwidget.AppWidgetManager
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.res.ColorStateList
-import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
-import android.graphics.drawable.RippleDrawable
 import android.os.Bundle
 import android.provider.Settings
+import android.view.Gravity
 import android.view.View
+import android.view.WindowInsets
+import android.widget.Button
+import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
-import android.widget.ImageView
+import android.widget.SeekBar
 import android.widget.TextView
-import android.widget.Button
 import android.widget.Toast
+import kotlin.math.min
 
 class MainActivity : Activity() {
-    private val foregroundColor = 0xfff8fafc.toInt()
-    private val muted = 0xffa3b0c3.toInt()
-    private val secondary = 0xff232b2a.toInt()
-    private val backgroundColor = 0xff101418.toInt()
-    private val accent = 0xffd6f6a2.toInt()
-    private val previews = mutableMapOf<WidgetKind, View>()
-    private lateinit var access: Button
-    private var resumed = false
+    private data class PlacedWidget(val kind: WidgetKind, val id: Int, val name: String)
 
+    private val ui by lazy { GalleryStyle(this) }
+    private val manager by lazy { AppWidgetManager.getInstance(this) }
+    private lateinit var scroll: ScrollView
+    private lateinit var content: LinearLayout
+    private lateinit var body: LinearLayout
+    private var kind = WidgetKind.UNLOCKS
+    private var onHome = false
+    private var selectedId = AppWidgetManager.INVALID_APPWIDGET_ID
+    private var draft: Appearance? = null
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val scroll = ScrollView(this).apply {
-            setBackgroundColor(backgroundColor)
+        kind = WidgetKind.entries.firstOrNull { it.key == savedInstanceState?.getString("kind") }
+            ?: WidgetKind.UNLOCKS
+        onHome = savedInstanceState?.getBoolean("onHome") ?: false
+        selectedId = savedInstanceState?.getInt("selectedId") ?: AppWidgetManager.INVALID_APPWIDGET_ID
+        if (savedInstanceState?.containsKey("opacity") == true) {
+            draft = Appearance(savedInstanceState.getInt("opacity"), savedInstanceState.getBoolean("light"))
+        }
+
+        content = ui.column().apply { setPadding(ui.dp(20), ui.dp(14), ui.dp(20), ui.dp(26)) }
+        val page = FrameLayout(this).apply {
+            val width = ui.dp(min(resources.configuration.screenWidthDp, 540))
+            addView(content, FrameLayout.LayoutParams(width, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
+        }
+        scroll = ScrollView(this).apply {
+            setBackgroundColor(ui.background)
             isFillViewport = true
-            clipToPadding = false
-        }
-        scroll.setOnApplyWindowInsetsListener { view, insets ->
-            if (android.os.Build.VERSION.SDK_INT >= 30) {
-                val bars = insets.getInsets(android.view.WindowInsets.Type.systemBars() or
-                    android.view.WindowInsets.Type.displayCutout())
-                view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            addView(page)
+            setOnApplyWindowInsetsListener { view, insets ->
+                if (android.os.Build.VERSION.SDK_INT >= 30) {
+                    val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
+                    view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+                }
+                insets
             }
-            insets
         }
-        val content = column().apply { setPadding(dp(20), dp(18), dp(20), dp(24)) }
-        scroll.addView(content)
         setContentView(scroll)
-
-        content.addView(text("Widgets", 21, foregroundColor, bold = true).apply {
-            val logo = getDrawable(R.drawable.app_icon)?.apply { setBounds(0, 0, dp(30), dp(30)) }
-            setCompoundDrawablesRelative(logo, null, null, null)
-            compoundDrawablePadding = dp(8)
-            gravity = android.view.Gravity.CENTER_VERTICAL
-        }, spaced(16))
-        content.addView(text("Widget gallery", 40, foregroundColor, bold = true).apply { letterSpacing = -.055f })
-        content.addView(text("Pick a widget for your home screen.", 15, muted), spaced(16))
-
-        access = button("Enable Usage Access") {
-            AlertDialog.Builder(this).setTitle("Phone unlocks")
-                .setMessage("Allow Usage Access for Widgets in Android settings. The app counts today's lock-screen events on this device.")
-                .setNegativeButton("Cancel", null)
-                .setPositiveButton("Open settings") { _, _ ->
-                    try {
-                        startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
-                    } catch (_: ActivityNotFoundException) {
-                        Toast.makeText(this, "Open Usage Access in Android settings.", Toast.LENGTH_LONG).show()
-                    }
-                }.show()
-        }
-        content.addView(access, spaced(10))
-        content.addView(button("Widget appearance") { WidgetAppearance.show(this) }.apply {
-            setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_appearance, 0, 0, 0)
-            compoundDrawablePadding = dp(8)
-            gravity = android.view.Gravity.CENTER_VERTICAL or android.view.Gravity.START
-        }, spaced(16))
-
-        for (group in WidgetKind.entries.chunked(2)) {
-            val row = LinearLayout(this).apply { isBaselineAligned = false }
-            group.forEachIndexed { index, kind ->
-                val tile = galleryCard(kind)
-                row.addView(tile, LinearLayout.LayoutParams(0, -2, 1f).apply {
-                    if (index > 0) marginStart = dp(12)
-                })
-            }
-            content.addView(row, spaced(12))
-        }
     }
 
     override fun onResume() {
         super.onResume()
-        resumed = true
-        access.visibility = if (Readings.hasUsageAccess(this)) View.GONE else View.VISIBLE
-        for (kind in WidgetKind.entries) refresh(kind)
+        for (widget in WidgetKind.entries) updateWidgets(this, widget)
+        render(preserveScroll = true)
     }
 
-    override fun onPause() {
-        resumed = false
-        super.onPause()
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putString("kind", kind.key)
+        outState.putBoolean("onHome", onHome)
+        outState.putInt("selectedId", selectedId)
+        draft?.let {
+            outState.putInt("opacity", it.opacity)
+            outState.putBoolean("light", it.light)
+        }
     }
 
-    private fun galleryCard(kind: WidgetKind): View {
-        val widget = Catalog.details(this, kind)
-        val card = column().apply {
-            background = shape(0xff171e22.toInt(), 16, 0xff343e43.toInt())
-            setPadding(dp(10), dp(10), dp(10), dp(8))
+    private fun render(preserveScroll: Boolean = false) {
+        val offset = if (preserveScroll) scroll.scrollY else 0
+        content.removeAllViews()
+        with(ui) {
+            content.place(text("Widgets", 20, heading = true).apply {
+                val mark = getDrawable(R.drawable.app_icon)?.apply { setBounds(0, 0, dp(28), dp(28)) }
+                setCompoundDrawablesRelative(mark, null, null, null)
+                compoundDrawablePadding = dp(8)
+                gravity = Gravity.CENTER_VERTICAL
+            })
+            content.place(equalRow(listOf(
+                button("Gallery", selected = !onHome) { showHome(false) },
+                button("On home", selected = onHome) { showHome(true) },
+            )), top = 16)
+            body = column()
+            content.place(body, top = 24)
         }
+        if (onHome) renderHome() else renderGallery()
+        scroll.post { scroll.scrollTo(0, offset) }
+    }
 
-        val preview = layoutInflater.inflate(R.layout.widget, card, false)
-        preview.findViewById<ImageView>(R.id.widget_icon).apply {
-            setImageResource(kind.icon)
-        }
-        if (kind == WidgetKind.COUNTER) {
-            preview.isFocusable = true
-            preview.setOnClickListener {
-                Readings.increment(this)
-                refresh(kind)
+    private fun showHome(value: Boolean) {
+        if (onHome == value) return
+        onHome = value
+        render()
+    }
+
+    private fun renderGallery() = with(ui) {
+        val current = kind
+        val details = Catalog.details(this@MainActivity, current)
+        val needsAccess = current == WidgetKind.UNLOCKS && !Readings.hasUsageAccess(this@MainActivity)
+        val reading = if (needsAccess) details.sample else Readings.read(this@MainActivity, current)
+
+        body.place(text("Widget gallery", 38, heading = true))
+        val preview = widgetPreview(current, reading).apply {
+            if (current == WidgetKind.COUNTER) {
+                isFocusable = true
+                contentDescription = "Count is ${reading.value}. Add one"
+                setOnClickListener {
+                    Readings.increment(this@MainActivity)
+                    updateWidgets(this@MainActivity, current)
+                    render(preserveScroll = true)
+                }
             }
         }
-        previews[kind] = preview
-        card.addView(preview, LinearLayout.LayoutParams(-1, dp(132)))
-        card.addView(text(widget.title, 16, foregroundColor, bold = true).apply {
-            setPadding(dp(2), dp(8), dp(2), 0)
-        })
-        card.addView(button("Add to home") { pin(kind) }.apply {
-            contentDescription = "Add ${widget.title} to home"
-            setTextColor(accent)
-            textSize = 13f
-        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
-        return card
+        body.place(previewStage(preview, side = 166, sample = needsAccess), top = 16, height = 246)
+
+        val selectors = WidgetKind.entries.map { item ->
+            val label = when (item) {
+                WidgetKind.UNLOCKS -> "Unlocks"
+                WidgetKind.BATTERY -> "Battery"
+                WidgetKind.DATE -> "Date"
+                WidgetKind.COUNTER -> "Counter"
+            }
+            button(label, selected = item == current) {
+                if (kind != item) {
+                    kind = item
+                    render(preserveScroll = true)
+                }
+            }.apply {
+                val icon = getDrawable(item.icon)?.mutate()?.apply {
+                    setBounds(0, 0, dp(18), dp(18))
+                    setTint(if (item == current) accent else muted)
+                }
+                setCompoundDrawablesRelative(null, icon, null, null)
+                compoundDrawablePadding = dp(4)
+                setPadding(dp(2), dp(8), dp(2), dp(8))
+                textSize = 12f
+            }
+        }
+        val controlsPerRow = if (resources.configuration.screenWidthDp < 340 ||
+            resources.configuration.fontScale >= 1.4f) 2 else 4
+        selectors.chunked(controlsPerRow).forEach { row -> body.place(equalRow(row), top = 10) }
+        body.place(text(details.title, 27, heading = true), top = 21)
+        body.place(text(details.description, 14, muted), top = 6)
+        body.place(button("Add to home", primary = true) { pin(current) }, top = 16)
+        if (needsAccess) {
+            body.place(button("Enable Usage Access") { askForUsageAccess() }, top = 8)
+        }
     }
 
-    private fun pin(kind: WidgetKind) {
-        val manager = AppWidgetManager.getInstance(this)
-        val details = Catalog.details(this, kind)
-        val title = details.title
+    private fun renderHome() = with(ui) {
+        val placed = WidgetKind.entries.flatMap { item ->
+            val title = Catalog.details(this@MainActivity, item).title
+            val ids = manager.getAppWidgetIds(item.component(this@MainActivity)).sorted()
+            ids.mapIndexed { index, id -> PlacedWidget(item, id, if (ids.size == 1) title else "$title ${index + 1}") }
+        }
+        body.place(text("On your home screen", 36, heading = true))
+        if (placed.isEmpty()) {
+            body.place(text("Add a widget to change its theme and opacity here.", 15, muted), top = 10)
+            body.place(button("Browse gallery", primary = true) { showHome(false) }, top = 20)
+            return@with
+        }
+        val selected = placed.firstOrNull { it.id == selectedId } ?: placed.first().also {
+            selectedId = it.id
+            draft = null
+        }
+        if (placed.size > 1) {
+            for (items in placed.chunked(2)) {
+                body.place(equalRow(items.map { widget ->
+                    button(widget.name, selected = widget.id == selectedId) {
+                        if (selectedId != widget.id) {
+                            selectedId = widget.id
+                            draft = null
+                            render(preserveScroll = true)
+                        }
+                    }
+                }), top = 8)
+            }
+        }
+
+        val saved = WidgetAppearance.read(this@MainActivity, selected.id)
+        val appearance = draft ?: saved
+        val preview = widgetPreview(selected.kind, Readings.read(this@MainActivity, selected.kind))
+        styleWidget(preview, appearance)
+        body.place(previewStage(preview, side = 140), top = 16, height = 204)
+        body.place(text(selected.name, 26, heading = true), top = 18)
+
+        body.place(equalRow(listOf(
+            button("Dark widget", selected = !appearance.light) { changeTheme(appearance = false, saved) },
+            button("Light widget", selected = appearance.light) { changeTheme(appearance = true, saved) },
+        )), top = 12)
+        val opacity = text(getString(R.string.widget_opacity_value, appearance.opacity), 14)
+        body.place(opacity, top = 16)
+        val save = button("Save appearance", primary = true) {
+            val change = draft ?: return@button
+            val updated = WidgetAppearance.save(this@MainActivity, selected.kind, selected.id, change)
+            draft = null
+            render(preserveScroll = true)
+            Toast.makeText(this@MainActivity, if (updated) "Appearance saved" else "Widget removed", Toast.LENGTH_SHORT).show()
+        }
+        save.isEnabled = appearance != saved
+        save.alpha = if (save.isEnabled) 1f else .65f
+        body.place(SeekBar(this@MainActivity).apply {
+            min = WidgetAppearance.MIN_OPACITY
+            max = WidgetAppearance.MAX_OPACITY
+            progress = appearance.opacity
+            minimumHeight = dp(48)
+            progressTintList = ColorStateList.valueOf(accent)
+            thumbTintList = ColorStateList.valueOf(accent)
+            contentDescription = "Background opacity"
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(bar: SeekBar, value: Int, fromUser: Boolean) {
+                    if (!fromUser) return
+                    val change = (draft ?: saved).copy(opacity = value)
+                    draft = change
+                    opacity.text = getString(R.string.widget_opacity_value, value)
+                    styleWidget(preview, change)
+                    save.isEnabled = change != saved
+                    save.alpha = if (save.isEnabled) 1f else .65f
+                }
+                override fun onStartTrackingTouch(bar: SeekBar) = Unit
+                override fun onStopTrackingTouch(bar: SeekBar) = Unit
+            })
+        }, top = 2)
+        body.place(save, top = 8)
+    }
+
+    private fun changeTheme(appearance: Boolean, saved: Appearance) {
+        draft = (draft ?: saved).copy(light = appearance)
+        render(preserveScroll = true)
+    }
+
+    private fun widgetPreview(item: WidgetKind, reading: Reading): View =
+        layoutInflater.inflate(R.layout.widget, FrameLayout(this), false).apply {
+            findViewById<ImageView>(R.id.widget_icon).setImageResource(item.icon)
+            findViewById<TextView>(R.id.widget_value).text = reading.value
+            findViewById<TextView>(R.id.widget_label).text = reading.label
+        }
+
+    private fun styleWidget(view: View, appearance: Appearance) {
+        view.findViewById<ImageView>(R.id.widget_surface).apply {
+            setImageResource(if (appearance.light) R.drawable.widget_background_light else R.drawable.widget_background)
+            imageAlpha = appearance.alpha
+        }
+        view.findViewById<TextView>(R.id.widget_value).setTextColor(
+            if (appearance.light) 0xff191d19.toInt() else 0xffffffff.toInt()
+        )
+        view.findViewById<TextView>(R.id.widget_label).setTextColor(
+            if (appearance.light) 0xff343c35.toInt() else 0xffbfc4ca.toInt()
+        )
+    }
+
+    private fun previewStage(preview: View, side: Int, sample: Boolean = false) = with(ui) {
+        FrameLayout(this@MainActivity).apply {
+            background = shape(0xff242a2d.toInt(), 24, line)
+            clipToOutline = true
+            addView(ImageView(this@MainActivity).apply {
+                setImageResource(R.drawable.gallery_art)
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }, FrameLayout.LayoutParams(-1, -1))
+            addView(preview, FrameLayout.LayoutParams(dp(side), dp(side), Gravity.CENTER))
+            if (sample) {
+                addView(text("Sample preview", 12, 0xfff4f5f4.toInt()).apply {
+                    background = shape(0xe8171b1d.toInt(), 7)
+                    setPadding(dp(8), dp(5), dp(8), dp(5))
+                }, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.END).apply {
+                    marginEnd = dp(12)
+                    bottomMargin = dp(12)
+                })
+            }
+        }
+    }
+
+    private fun equalRow(buttons: List<Button>) = LinearLayout(this).apply {
+        isBaselineAligned = false
+        buttons.forEachIndexed { index, button ->
+            addView(button, LinearLayout.LayoutParams(0, -2, 1f).apply {
+                if (index > 0) marginStart = ui.dp(6)
+            })
+        }
+    }
+
+    private fun askForUsageAccess() {
+        AlertDialog.Builder(this).setTitle("Phone unlocks")
+            .setMessage("Allow Usage Access so Widgets can count today’s lock-screen events on this device.")
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Open settings") { _, _ ->
+                try {
+                    startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+                } catch (_: ActivityNotFoundException) {
+                    Toast.makeText(this, "Open Usage Access in Android settings.", Toast.LENGTH_LONG).show()
+                }
+            }.show()
+    }
+
+    private fun pin(item: WidgetKind) {
+        val details = Catalog.details(this, item)
         val extras = Bundle().apply {
-            putParcelable(AppWidgetManager.EXTRA_APPWIDGET_PREVIEW, widgetViews(this@MainActivity, kind, details.sample))
+            putParcelable(AppWidgetManager.EXTRA_APPWIDGET_PREVIEW, widgetViews(this@MainActivity, item, details.sample))
         }
         if (manager.isRequestPinAppWidgetSupported &&
-            manager.requestPinAppWidget(kind.component(this), extras, null)) return
+            manager.requestPinAppWidget(item.component(this), extras, null)) return
 
-        AlertDialog.Builder(this).setTitle("Add $title")
-            .setMessage("Touch and hold an empty spot on your home screen. Open Widgets, then find $title under Widgets.")
+        AlertDialog.Builder(this).setTitle("Add ${details.title}")
+            .setMessage("Touch and hold an empty spot on your home screen. Open the widget picker and find ${details.title}.")
             .setPositiveButton("Got it", null).show()
     }
-
-    private fun refresh(kind: WidgetKind) {
-        val reading = Readings.read(this, kind)
-        if (resumed) {
-            val preview = previews.getValue(kind)
-            preview.findViewById<TextView>(R.id.widget_value).text = reading.value
-            preview.findViewById<TextView>(R.id.widget_label).text = reading.label
-            if (kind == WidgetKind.COUNTER) preview.contentDescription = "Count is ${reading.value}. Add one"
-        }
-        updateWidgets(this, kind, reading = reading)
-    }
-
-    private fun text(value: String, size: Int, color: Int, bold: Boolean = false) = TextView(this).apply {
-        text = value
-        textSize = size.toFloat()
-        setTextColor(color)
-        if (bold) setTypeface(typeface, Typeface.BOLD)
-    }
-
-    private fun button(label: String, action: () -> Unit) = Button(this).apply {
-        text = label
-        isAllCaps = false
-        setTextColor(foregroundColor)
-        minHeight = dp(48)
-        setPadding(dp(10), dp(8), dp(10), dp(8))
-        background = RippleDrawable(ColorStateList.valueOf(0x3394a3b8), shape(secondary, 10), null)
-        setOnClickListener { action() }
-    }
-
-    private fun shape(color: Int, radius: Int, border: Int? = null) = GradientDrawable().apply {
-        setColor(color)
-        cornerRadius = dp(radius).toFloat()
-        if (border != null) setStroke(dp(1), border)
-    }
-
-    private fun column() = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-    private fun spaced(bottom: Int) = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(bottom) }
-    private fun dp(value: Int) = (resources.displayMetrics.density * value + .5f).toInt()
 }

@@ -29,7 +29,7 @@ enum class WidgetKind(val key: String, val icon: Int, val provider: Class<out Ga
     fun component(context: Context) = ComponentName(context, provider)
 }
 
-data class WidgetDetails(val title: String, val sample: Reading)
+data class WidgetDetails(val title: String, val description: String, val sample: Reading)
 
 object Catalog {
     private var cached: Map<String, WidgetDetails>? = null
@@ -44,7 +44,7 @@ object Catalog {
         return (0 until json.length()).associate { index ->
             val row = json.getJSONObject(index)
             row.getString("id") to WidgetDetails(
-                row.getString("title"),
+                row.getString("title"), row.getString("description"),
                 Reading(row.getString("sample"), row.getString("label"))
             )
         }
@@ -155,13 +155,14 @@ fun updateWidgets(context: Context, kind: WidgetKind, ids: IntArray? = null, rea
     }
 
     for (id in targetIds) {
+        val appearance = WidgetAppearance.read(context, id)
         val views = widgetViews(context, kind, value).apply {
-            if (WidgetAppearance.light(context, id)) {
+            if (appearance.light) {
                 setImageViewResource(R.id.widget_surface, R.drawable.widget_background_light)
                 setTextColor(R.id.widget_value, 0xff191d19.toInt())
                 setTextColor(R.id.widget_label, 0xff343c35.toInt())
             }
-            setInt(R.id.widget_surface, "setImageAlpha", WidgetAppearance.alpha(context, id))
+            setInt(R.id.widget_surface, "setImageAlpha", appearance.alpha)
             setOnClickPendingIntent(android.R.id.background, click)
         }
         manager.updateAppWidget(id, views)
