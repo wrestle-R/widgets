@@ -1,5 +1,6 @@
 package com.widgets.gallery
 
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.AlertDialog
 import android.app.PendingIntent
@@ -17,7 +18,8 @@ import android.util.SizeF
 import android.view.Gravity
 import android.view.View
 import android.view.WindowInsets
-import android.widget.Button
+import android.window.OnBackInvokedCallback
+import android.window.OnBackInvokedDispatcher
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -31,6 +33,8 @@ class MainActivity : Activity() {
     private val ui by lazy { GalleryStyle(this) }
     private val manager by lazy { AppWidgetManager.getInstance(this) }
     private lateinit var scroll: ScrollView
+    private lateinit var headerRegion: LinearLayout
+    private lateinit var footer: LinearLayout
     private lateinit var content: LinearLayout
     private lateinit var body: LinearLayout
     private var designId = "classic"
@@ -40,6 +44,9 @@ class MainActivity : Activity() {
     private val previewSize: SizeF
         get() = SizeF(columns * 62f, rows * 62f)
     private var onHome = false
+    private var expanded = false
+    private var backRegistered = false
+    private val backCallback by lazy { OnBackInvokedCallback { showGallery() } }
     private var selectedId = AppWidgetManager.INVALID_APPWIDGET_ID
     private var draft: Appearance? = null
     private var restoredScroll: Int? = null
@@ -62,30 +69,42 @@ class MainActivity : Activity() {
         columns = savedInstanceState?.getInt("columns", 2)?.coerceIn(1, 4) ?: 2
         rows = savedInstanceState?.getInt("rows", 2)?.coerceIn(1, 4) ?: 2
         onHome = savedInstanceState?.getBoolean("onHome") ?: false
+        expanded = savedInstanceState?.getBoolean("expanded") ?: false
         selectedId = savedInstanceState?.getInt("selectedId") ?: AppWidgetManager.INVALID_APPWIDGET_ID
         if (savedInstanceState?.containsKey("opacity") == true) {
             draft = Appearance(savedInstanceState.getInt("opacity"), savedInstanceState.getBoolean("light"),
                 savedInstanceState.getString("draftDesign") ?: "classic")
         }
 
-        content = ui.column().apply { setPadding(ui.dp(20), ui.dp(14), ui.dp(20), ui.dp(26)) }
-        val page = FrameLayout(this).apply {
-            val width = ui.dp(min(resources.configuration.screenWidthDp, 540))
-            addView(content, FrameLayout.LayoutParams(width, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
-        }
+        headerRegion = ui.column().apply { setPadding(ui.dp(20), ui.dp(4), ui.dp(20), ui.dp(6)) }
+        content = ui.column().apply { setPadding(ui.dp(20), ui.dp(14), ui.dp(20), ui.dp(18)) }
+        footer = ui.column().apply { setPadding(ui.dp(20), ui.dp(8), ui.dp(20), ui.dp(12)) }
         scroll = ScrollView(this).apply {
+            addView(content)
+        }
+        val page = ui.column().apply {
+            addView(headerRegion, LinearLayout.LayoutParams(-1, -2))
+            addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+            addView(footer, LinearLayout.LayoutParams(-1, -2))
+        }
+        val root = FrameLayout(this).apply {
             setBackgroundColor(ui.background)
-            isFillViewport = true
-            addView(page)
-            setOnApplyWindowInsetsListener { view, insets ->
-                if (android.os.Build.VERSION.SDK_INT >= 30) {
-                    val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
-                    view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            val width = ui.dp(min(resources.configuration.screenWidthDp, 520))
+            addView(page, FrameLayout.LayoutParams(width, -1, Gravity.CENTER_HORIZONTAL))
+        }
+        if (Build.VERSION.SDK_INT >= 30) {
+            window.setDecorFitsSystemWindows(false)
+            root.setOnApplyWindowInsetsListener { view, insets ->
+                val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
+                view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+                page.layoutParams = (page.layoutParams as FrameLayout.LayoutParams).apply {
+                    width = min(ui.dp(resources.configuration.screenWidthDp) - bars.left - bars.right, ui.dp(520))
+                        .coerceAtLeast(1)
                 }
                 insets
             }
         }
-        setContentView(scroll)
+        setContentView(root)
     }
 
     override fun onResume() {
@@ -102,6 +121,7 @@ class MainActivity : Activity() {
         outState.putInt("columns", columns)
         outState.putInt("rows", rows)
         outState.putBoolean("onHome", onHome)
+        outState.putBoolean("expanded", expanded)
         outState.putInt("scrollY", scroll.scrollY)
         outState.putInt("selectedId", selectedId)
         draft?.let {
@@ -114,38 +134,50 @@ class MainActivity : Activity() {
     private fun render(preserveScroll: Boolean = false) {
         val offset = restoredScroll ?: if (preserveScroll) scroll.scrollY else 0
         restoredScroll = null
+        headerRegion.removeAllViews()
         content.removeAllViews()
+        footer.removeAllViews()
         with(ui) {
-            content.place(header())
-            content.place(equalRow(listOf(
-                button("Gallery", selected = !onHome) { showHome(false) },
-                button("On home", selected = onHome) { showHome(true) },
-            )), top = 16)
-            body = column()
-            content.place(body, top = 24)
+            headerRegion.place(header())
+            if (!expanded) {
+                headerRegion.place(equalRow(listOf(
+                    button("Gallery", selected = !onHome, quiet = true) { showGallery() },
+                    button("On home", selected = onHome, quiet = true) { showHome() },
+                )), top = 6)
+            }
+            body = content
         }
-        if (onHome) renderHome() else renderGallery()
+        when {
+            expanded -> renderDetails()
+            onHome -> renderHome()
+            else -> renderGallery()
+        }
+        footer.visibility = if (footer.childCount == 0) View.GONE else View.VISIBLE
+        if (Build.VERSION.SDK_INT >= 33 && backRegistered != expanded) {
+            if (expanded) {
+                onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, backCallback)
+            } else {
+                onBackInvokedDispatcher.unregisterOnBackInvokedCallback(backCallback)
+            }
+            backRegistered = expanded
+        }
         scroll.post { scroll.scrollTo(0, offset) }
     }
 
     private fun header() = with(ui) {
         LinearLayout(this@MainActivity).apply {
             gravity = Gravity.CENTER_VERTICAL
-            addView(text("Widgets", 20, heading = true).apply {
-                val mark = getDrawable(R.drawable.app_icon)?.apply { setBounds(0, 0, dp(28), dp(28)) }
-                setCompoundDrawablesRelative(mark, null, null, null)
-                compoundDrawablePadding = dp(8)
-                gravity = Gravity.CENTER_VERTICAL
-            }, LinearLayout.LayoutParams(0, -2, 1f))
+            val title = if (expanded) button("Gallery", quiet = true) { showGallery() }.apply {
+                decorate(this, R.drawable.ic_arrow_left, 18, accent)
+            } else text("Widgets", 22, heading = true).apply {
+                decorate(this, R.mipmap.ic_launcher, 30)
+            }
+            title.gravity = Gravity.CENTER_VERTICAL or Gravity.START
+            addView(title, LinearLayout.LayoutParams(0, -2, 1f))
             val target = if (dark) "Light" else "Dark"
-            addView(button(target) { toggleTheme() }.apply {
+            addView(button(target, quiet = true) { toggleTheme() }.apply {
                 contentDescription = "Switch to ${target.lowercase()} mode"
-                val icon = getDrawable(if (dark) R.drawable.ic_sun else R.drawable.ic_moon)?.mutate()?.apply {
-                    setBounds(0, 0, dp(17), dp(17))
-                    setTint(accent)
-                }
-                setCompoundDrawablesRelative(icon, null, null, null)
-                compoundDrawablePadding = dp(6)
+                decorate(this, if (dark) R.drawable.ic_sun else R.drawable.ic_moon, 17, accent)
             }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
         }
     }
@@ -156,40 +188,58 @@ class MainActivity : Activity() {
         recreate()
     }
 
-    private fun showHome(value: Boolean) {
-        if (onHome == value) return
-        onHome = value
+    private fun showGallery() {
+        if (!expanded && !onHome) return
+        expanded = false
+        onHome = false
         render()
     }
 
+    private fun showHome() {
+        if (onHome) return
+        onHome = true
+        render()
+    }
+
+    @SuppressLint("GestureBackNavigation") // Android 13 and later use the registered callback.
+    @Suppress("DEPRECATION")
+    override fun onBackPressed() {
+        if (Build.VERSION.SDK_INT < 33 && expanded) showGallery() else super.onBackPressed()
+    }
+
     private fun renderGallery() = with(ui) {
+        body.place(actionRow("App Unlocks", "Daily phone unlocks", R.drawable.ic_lock_keyhole) {
+            expanded = true
+            render()
+        }, top = 6)
+    }
+
+    private fun renderDetails() = with(ui) {
         val design = Catalog.design(this@MainActivity, designId)
         val appearance = Appearance(light = !dark, design = design.id)
         val useSample = reading.count == null
         val preview = ImageView(this@MainActivity)
         val size = previewSize
         updatePreview(preview, appearance, size, if (useSample) Reading.sample else reading)
-        body.place(text("App Unlocks", 38, heading = true))
-        body.place(text("Count how often you unlock your phone.", 15, muted), top = 5)
-        body.place(previewStage(preview, appearance, size, useSample), top = 16, height = 270)
-        showDesignChoices(design.id) {
+        body.place(text("App Unlocks", 34, heading = true))
+        body.place(text("Daily phone unlocks", 15, muted), top = 4)
+        body.place(previewStage(preview, appearance, size, useSample), top = 16, height = stageHeight())
+        showPreviewControls(design.id) {
             designId = it
             render(preserveScroll = true)
         }
-        body.place(text(design.description, 14, muted), top = 12)
-        showSizes()
-        body.place(button("Add to home", primary = true) { pin(design, appearance) }, top = 16)
         if (!Readings.hasUsageAccess(this@MainActivity)) {
-            body.place(button("Enable Usage Access") { askForUsageAccess() }, top = 8)
+            body.place(button("Enable Usage Access", quiet = true) { askForUsageAccess() }, top = 8)
         }
+        footer.place(button("Add to home", primary = true) { pin(design, appearance) })
     }
 
     private fun renderHome() = with(ui) {
         val placed = UnlockRefresh.ids(this@MainActivity).sorted()
-        body.place(text("On your home screen", 35, heading = true))
+        body.place(text("On your home screen", 32, heading = true))
         if (placed.isEmpty()) {
             body.place(text("Add App Unlocks to customize it here.", 15, muted), top = 10)
-            body.place(button("Browse designs", primary = true) { showHome(false) }, top = 16)
+            body.place(button("Browse designs", primary = true) { showGallery() }, top = 16)
             return@with
         }
 
@@ -218,9 +268,8 @@ class MainActivity : Activity() {
         val preview = ImageView(this@MainActivity)
         val size = previewSize
         updatePreview(preview, appearance, size, reading)
-        body.place(previewStage(preview, appearance, size), top = 16, height = 270)
-        showSizes()
-        showDesignChoices(appearance.design) { changeDraft(appearance.copy(design = it)) }
+        body.place(previewStage(preview, appearance, size), top = 16, height = stageHeight())
+        showPreviewControls(appearance.design) { changeDraft(appearance.copy(design = it)) }
         body.place(equalRow(listOf(
             button("Dark widget", selected = !appearance.light) { changeDraft(appearance.copy(light = false)) },
             button("Light widget", selected = appearance.light) { changeDraft(appearance.copy(light = true)) },
@@ -257,22 +306,56 @@ class MainActivity : Activity() {
                 override fun onStopTrackingTouch(bar: SeekBar) = Unit
             })
         }, top = 2)
-        body.place(save, top = 8)
-        body.place(text("To resize a placed widget, touch and hold it on your home screen.", 13, muted), top = 12)
+        footer.place(save)
     }
 
-    private fun showDesignChoices(current: String, select: (String) -> Unit) = with(ui) {
-        Catalog.designs(this@MainActivity).chunked(3).forEach { group ->
-            body.place(equalRow(group.map { design ->
-                button(design.title, selected = design.id == current) { select(design.id) }
-            }), top = 8)
+    private fun showPreviewControls(current: String, select: (String) -> Unit) = with(ui) {
+        val choices = Catalog.designs(this@MainActivity)
+        val currentDesign = Catalog.design(this@MainActivity, current)
+        body.place(equalRow(listOf(
+            actionRow("Design", currentDesign.title) {
+                showPicker(AlertDialog.Builder(this@MainActivity).setTitle("Design")
+                    .setSingleChoiceItems(choices.map { it.title }.toTypedArray(), choices.indexOf(currentDesign)) { dialog, index ->
+                        dialog.dismiss()
+                        select(choices[index].id)
+                    }
+                    .setNegativeButton("Cancel", null))
+            },
+            actionRow("Preview size", "$columns × $rows") { chooseSize() },
+        )), top = 12)
+    }
+
+    private fun chooseSize() = with(ui) {
+        val sizes = column().apply { setPadding(dp(22), dp(12), dp(22), dp(6)) }
+        var width = columns
+        var height = rows
+        fun showChoices() {
+            sizes.removeAllViews()
+            sizes.place(sizeRow("Width", width) {
+                width = it
+                showChoices()
+            })
+            sizes.place(sizeRow("Height", height) {
+                height = it
+                showChoices()
+            }, top = 8)
         }
+        showChoices()
+        showPicker(AlertDialog.Builder(this@MainActivity).setTitle("Preview size").setView(sizes)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Apply") { _, _ ->
+                columns = width
+                rows = height
+                render(preserveScroll = true)
+            })
     }
 
-    private fun showSizes() = with(ui) {
-        body.place(text("Preview size", 14), top = 15)
-        body.place(sizeRow("Width", columns) { columns = it }, top = 6)
-        body.place(sizeRow("Height", rows) { rows = it }, top = 6)
+    private fun showPicker(builder: AlertDialog.Builder) = with(ui) {
+        builder.show().apply {
+            window?.setBackgroundDrawable(shape(background, 24, line))
+            getButton(AlertDialog.BUTTON_POSITIVE)?.isAllCaps = false
+            getButton(AlertDialog.BUTTON_NEGATIVE)?.isAllCaps = false
+        }
     }
 
     private fun sizeRow(axis: String, selected: Int, change: (Int) -> Unit) = with(ui) {
@@ -280,12 +363,10 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
             addView(text(axis, 13, muted), LinearLayout.LayoutParams(dp(56), -2))
             addView(equalRow((1..4).map { cells ->
-                button(cells.toString(), selected = cells == selected) {
-                    if (cells != selected) {
-                        change(cells)
-                        render(preserveScroll = true)
-                    }
-                }.apply { contentDescription = "$axis $cells cells" }
+                button(cells.toString(), selected = cells == selected, action = { change(cells) }).apply {
+                    contentDescription = "$axis $cells ${if (cells == 1) "cell" else "cells"}"
+                    setPadding(dp(4), dp(9), dp(4), dp(9))
+                }
             }), LinearLayout.LayoutParams(0, -2, 1f))
         }
     }
@@ -301,6 +382,12 @@ class MainActivity : Activity() {
         view.contentDescription = reading.accessibilityLabel
     }
 
+    private fun stageHeight(): Int {
+        val height = resources.configuration.screenHeightDp
+        return if (expanded) (height * .39f).toInt().coerceIn(128, 330)
+        else (height * .34f).toInt().coerceIn(128, 268)
+    }
+
     private fun previewStage(preview: ImageView, appearance: Appearance, size: SizeF, sample: Boolean = false) = with(ui) {
         FrameLayout(this@MainActivity).apply {
             background = shape(panel, 24, line)
@@ -310,10 +397,25 @@ class MainActivity : Activity() {
                 scaleType = ImageView.ScaleType.CENTER_CROP
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             }, FrameLayout.LayoutParams(-1, -1))
-            val fit = min(1f, (resources.configuration.screenWidthDp - 64).coerceAtLeast(120) / size.width)
-            addView(preview, FrameLayout.LayoutParams(
-                dp((size.width * fit).toInt()), dp((size.height * fit).toInt()), Gravity.CENTER,
-            ))
+            val clearance = dp(16)
+            preview.scaleType = ImageView.ScaleType.FIT_CENTER
+            addView(preview, FrameLayout.LayoutParams(-1, -1).apply {
+                setMargins(clearance, clearance, clearance, dp(if (sample) 44 else 16))
+            })
+            // Enlarge the in-app preview slightly at 1×1 while retaining its real artwork and ratio.
+            val limit = dp(if (size.width == 62f && size.height == 62f) 100 else 74) / 62f
+            addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+                if (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop) {
+                    val margins = preview.layoutParams as FrameLayout.LayoutParams
+                    val width = (right - left - margins.leftMargin - margins.rightMargin).coerceAtLeast(1)
+                    val height = (bottom - top - margins.topMargin - margins.bottomMargin).coerceAtLeast(1)
+                    val scale = minOf(limit, width / size.width, height / size.height)
+                    preview.setPadding(
+                        ((width - size.width * scale) / 2).toInt(), ((height - size.height * scale) / 2).toInt(),
+                        ((width - size.width * scale) / 2).toInt(), ((height - size.height * scale) / 2).toInt(),
+                    )
+                }
+            }
             if (sample) {
                 addView(text("Sample preview", 12).apply {
                     background = shape(panel, 7, line)
@@ -326,7 +428,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun equalRow(buttons: List<Button>) = LinearLayout(this).apply {
+    private fun equalRow(buttons: List<View>) = LinearLayout(this).apply {
         isBaselineAligned = false
         buttons.forEachIndexed { index, button ->
             addView(button, LinearLayout.LayoutParams(0, -2, 1f).apply {

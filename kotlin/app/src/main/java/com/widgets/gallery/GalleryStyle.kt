@@ -4,12 +4,15 @@ import android.app.Activity
 import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.graphics.Typeface
+import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.graphics.drawable.StateListDrawable
 import android.view.Gravity
 import android.view.View
+import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Button
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 
@@ -46,6 +49,7 @@ internal class GalleryStyle(private val activity: Activity) {
         label: String,
         primary: Boolean = false,
         selected: Boolean = false,
+        quiet: Boolean = false,
         action: () -> Unit,
     ) = Button(activity).apply {
         text = label
@@ -61,15 +65,69 @@ internal class GalleryStyle(private val activity: Activity) {
             arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf()),
             intArrayOf(muted, if (primary) onAccent else if (selected) accent else textColor)
         ))
-        val fill = if (primary) accent else if (selected) selectedFill else panel
+        val fill = if (primary) accent else if (selected) selectedFill else if (quiet) Color.TRANSPARENT else panel
         background = StateListDrawable().apply {
             addState(intArrayOf(-android.R.attr.state_enabled), shape(panel, 13, line))
             addState(intArrayOf(), RippleDrawable(
                 ColorStateList.valueOf(if (primary == dark) 0x33000000 else 0x26ffffff),
-                shape(fill, 13, if (primary) null else if (selected) 0xff5b704d.toInt() else line),
-                null
+                shape(fill, 13, if (primary || quiet) null else if (selected) 0xff5b704d.toInt() else line),
+                shape(Color.WHITE, 13)
             ))
         }
+        setOnClickListener { action() }
+    }
+
+    fun decorate(label: TextView, resource: Int, size: Int, tint: Int? = null) {
+        val icon = activity.getDrawable(resource)?.mutate()?.apply {
+            setBounds(0, 0, dp(size), dp(size))
+            tint?.let(::setTint)
+        }
+        label.setCompoundDrawablesRelative(icon, null, null, null)
+        label.compoundDrawablePadding = dp(8)
+    }
+
+    fun actionRow(title: String, subtitle: String, icon: Int? = null, action: () -> Unit) = LinearLayout(activity).apply {
+        val featured = icon != null
+        gravity = Gravity.CENTER_VERTICAL
+        minimumHeight = dp(if (featured) 80 else 60)
+        val horizontal = dp(if (featured) 14 else 12)
+        setPadding(horizontal, dp(10), horizontal, dp(10))
+        background = RippleDrawable(ColorStateList.valueOf(0x28696969), shape(panel, if (featured) 19 else 13), null)
+        isFocusable = true
+        accessibilityDelegate = object : View.AccessibilityDelegate() {
+            override fun onInitializeAccessibilityNodeInfo(host: View, info: AccessibilityNodeInfo) {
+                super.onInitializeAccessibilityNodeInfo(host, info)
+                info.className = Button::class.java.name
+            }
+        }
+        contentDescription = "$title, $subtitle"
+        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+        if (icon != null) {
+            addView(ImageView(activity).apply {
+                setImageResource(icon)
+                setColorFilter(accent)
+                background = shape(selectedFill, 14)
+                setPadding(dp(12), dp(12), dp(12), dp(12))
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }, LinearLayout.LayoutParams(dp(46), dp(46)).apply { marginEnd = dp(12) })
+        }
+        addView(column().apply {
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+            if (featured) {
+                place(text(title, 20, heading = true))
+                place(text(subtitle, 14, muted), top = 3)
+            } else {
+                place(text(title, 12, muted))
+                place(text(subtitle, 15).apply {
+                    typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                }, top = 3)
+            }
+        }, LinearLayout.LayoutParams(0, -2, 1f))
+        addView(ImageView(activity).apply {
+            setImageResource(R.drawable.ic_chevron_right)
+            setColorFilter(muted)
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }, LinearLayout.LayoutParams(dp(18), dp(18)).apply { marginStart = dp(5) })
         setOnClickListener { action() }
     }
 
