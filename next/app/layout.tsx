@@ -7,13 +7,15 @@ import "@fontsource-variable/space-grotesk";
 import "./style.css";
 
 export const metadata: Metadata = {
-  title: "Widgets — Your home screen, your way",
+  title: "Widgets — App Unlocks",
   other: {"page-type":"software","site-kind":"software"},
   description: "An Android widget gallery. Preview the widgets, make them your own, and download the app.",
 };
 
 export default function Layout({ children }: { children: React.ReactNode }) {
-  return <html lang="en" data-type="software"><body>
+  const base = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+  const art = { "--glass": `url("${base}/substrate.webp")`, "--glass-light": `url("${base}/glass-light.webp")` } as React.CSSProperties;
+  return <html lang="en" data-type="software"><body style={art}>
     <header className="site-header"><div className="wrap nav">
       <Link className="wordmark" href="/"><Blocks size={22}/> Widgets</Link>
       <nav aria-label="Main">

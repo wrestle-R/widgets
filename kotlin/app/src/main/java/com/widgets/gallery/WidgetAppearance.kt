@@ -1,14 +1,10 @@
 package com.widgets.gallery
 
-import android.appwidget.AppWidgetManager
 import android.content.Context
 import kotlin.math.roundToInt
 
-internal data class Appearance(val opacity: Int = 100, val light: Boolean = false) {
+internal data class Appearance(val opacity: Int = 100, val light: Boolean = false, val design: String = "classic") {
     val alpha: Int get() = (opacity * 255 / 100f).roundToInt()
-    val surface: Int get() = if (light) R.drawable.widget_background_light else R.drawable.widget_background
-    val valueColor: Int get() = if (light) 0xff191d19.toInt() else 0xffffffff.toInt()
-    val labelColor: Int get() = if (light) 0xff343c35.toInt() else 0xffbfc4ca.toInt()
 }
 
 internal object WidgetAppearance {
@@ -22,24 +18,25 @@ internal object WidgetAppearance {
         val prefs = prefs(context)
         return Appearance(
             prefs.getInt(id.toString(), MAX_OPACITY).coerceIn(MIN_OPACITY, MAX_OPACITY),
-            prefs.getBoolean("light.$id", false)
+            prefs.getBoolean("light.$id", false),
+            prefs.getString("design.$id", "classic").orEmpty(),
         )
     }
 
-    fun save(context: Context, kind: WidgetKind, id: Int, appearance: Appearance): Boolean {
-        val manager = AppWidgetManager.getInstance(context)
-        if (id !in manager.getAppWidgetIds(kind.component(context))) return false
+    fun save(context: Context, id: Int, appearance: Appearance): Boolean {
+        if (id !in UnlockRefresh.ids(context)) return false
         prefs(context).edit()
             .putInt(id.toString(), appearance.opacity)
             .putBoolean("light.$id", appearance.light)
+            .putString("design.$id", appearance.design)
             .apply()
-        updateWidgets(context, kind, intArrayOf(id))
+        UnlockRefresh.enqueue(context, intArrayOf(id))
         return true
     }
 
     fun remove(context: Context, ids: IntArray) {
         val editor = prefs(context).edit()
-        ids.forEach { id -> editor.remove(id.toString()).remove("light.$id") }
+        ids.forEach { id -> editor.remove(id.toString()).remove("light.$id").remove("design.$id") }
         editor.apply()
     }
 }

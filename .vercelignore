@@ -1,0 +1,8 @@
+kotlin/
+local-docs/
+docs/
+next/public/widgets.apk
+next/out/
+next/.next/
+next/node_modules/
+**/.env*

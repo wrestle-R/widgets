@@ -1,30 +1,28 @@
 import Link from "next/link";
 import { ArrowDown, ArrowUpRight, Download, ImagePlus } from "lucide-react";
-import widgets from "../../shared/widgets.json";
-import { Inspector, Tile } from "./gallery";
+import designs from "../../shared/widgets.json";
+import { Inspector, UnlockTile } from "./gallery";
 import { issueForm, latestApk } from "./links";
 
 export default function Page() {
-  const art = `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/substrate.webp`;
   return <main>
-    <section className="hero" style={{backgroundImage:`url("${art}")`}}>
+    <section className="hero">
       <div className="hero-inner wrap">
-        <div className="hero-copy" data-enter>
+        <div className="hero-copy">
           <p className="platform"><span /> For Android</p>
-          <h1>Widgets.<br/>Your way.</h1>
-          <p className="lead">A collection of widgets for the things you want on your home screen.</p>
+          <h1>App<br/>Unlocks.</h1>
+          <p className="lead">See how often you unlock your phone. One count, five ways to put it on your home screen.</p>
           <div className="actions">
             <a className="button primary" href={latestApk}><Download size={17}/> Download APK</a>
-            <a className="button secondary" href="#gallery">Explore widgets <ArrowDown size={16}/></a>
+            <a className="button secondary" href="#gallery">Try the designs <ArrowDown size={16}/></a>
           </div>
           <Link className="android-version" href="/releases/">Android 9 and up <span/> Release notes <ArrowUpRight size={13}/></Link>
         </div>
         <div className="hero-product" aria-hidden="true">
-          <div className="phone">
-            <div className="phone-camera" />
-            <div className="phone-time">09<span>:</span>41</div>
-            <div className="phone-grid">{widgets.map(widget => <Tile key={widget.id} widget={widget} />)}</div>
-            <div className="phone-home" />
+          <div className="hero-tiles">
+            <div className="hero-tile hero-classic"><UnlockTile design={designs[0]}/></div>
+            <div className="hero-tile hero-orbit"><UnlockTile design={designs[2]}/></div>
+            <div className="hero-tile hero-signal"><UnlockTile design={designs[1]} width={4} height={2}/></div>
           </div>
         </div>
       </div>
@@ -32,8 +30,8 @@ export default function Page() {
 
     <section id="gallery" className="wrap gallery">
       <div className="section-title">
-        <h2>Try the widgets.</h2>
-        <p>See how each one looks at different sizes, opacity levels, and themes.</p>
+        <h2>Find your fit.</h2>
+        <p>Try each design from 1 × 1 to 4 × 4, with your preferred theme and opacity.</p>
       </div>
       <Inspector />
     </section>

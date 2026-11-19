@@ -1,7 +1,12 @@
 package com.widgets.gallery
 
 import android.app.AppOpsManager
+import android.app.Application
 import android.app.PendingIntent
+import android.app.job.JobInfo
+import android.app.job.JobParameters
+import android.app.job.JobScheduler
+import android.app.job.JobService
 import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.appwidget.AppWidgetManager
@@ -10,182 +15,250 @@ import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.os.BatteryManager
+import android.content.IntentFilter
+import android.graphics.Color
+import android.os.Build
 import android.os.Bundle
 import android.os.Process
+import android.util.SizeF
 import android.widget.RemoteViews
 import org.json.JSONArray
+import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-import java.util.Locale
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
-enum class WidgetKind(val key: String, val icon: Int, val provider: Class<out GalleryWidget>) {
-    UNLOCKS("unlocks", R.drawable.ic_unlocks, UnlocksWidget::class.java),
-    BATTERY("battery", R.drawable.ic_battery, BatteryWidget::class.java),
-    DATE("date", R.drawable.ic_date, DateWidget::class.java),
-    COUNTER("counter", R.drawable.ic_counter, CounterWidget::class.java);
+internal data class Design(val id: String, val title: String, val description: String, val accent: Int)
 
-    fun component(context: Context) = ComponentName(context, provider)
-}
+internal object Catalog {
+    @Volatile private var cached: List<Design>? = null
 
-data class WidgetDetails(val title: String, val description: String, val sample: Reading)
-
-object Catalog {
-    private var cached: Map<String, WidgetDetails>? = null
-
-    fun details(context: Context, kind: WidgetKind): WidgetDetails {
-        val details = cached ?: load(context).also { cached = it }
-        return details.getValue(kind.key)
+    fun designs(context: Context): List<Design> = cached ?: synchronized(this) {
+        cached ?: context.assets.open("widgets.json").bufferedReader().use { input ->
+            val json = JSONArray(input.readText())
+            List(json.length()) { index ->
+                val row = json.getJSONObject(index)
+                Design(row.getString("id"), row.getString("title"),
+                    row.getString("description"), Color.parseColor(row.getString("color")))
+            }
+        }.also { cached = it }
     }
 
-    private fun load(context: Context): Map<String, WidgetDetails> {
-        val json = JSONArray(context.assets.open("widgets.json").bufferedReader().use { it.readText() })
-        return (0 until json.length()).associate { index ->
-            val row = json.getJSONObject(index)
-            row.getString("id") to WidgetDetails(
-                row.getString("title"), row.getString("description"),
-                Reading(row.getString("sample"), row.getString("label"))
-            )
-        }
+    fun design(context: Context, id: String): Design {
+        val list = designs(context)
+        return list.firstOrNull { it.id == id } ?: list.first()
     }
 }
 
-data class Reading(val value: String, val label: String)
+internal data class Reading(val count: Int?, val buckets: List<Int>, val label: String) {
+    val accessibilityLabel: String
+        get() = if (count == null) "Phone unlocks. $label" else "$count phone unlocks today"
 
-object Readings {
+    companion object {
+        val sample = Reading(85, listOf(0, 2, 16, 21, 19, 14, 9, 4), "Unlocks today")
+    }
+}
+
+internal object Readings {
     @Suppress("DEPRECATION")
     fun hasUsageAccess(context: Context): Boolean =
         context.getSystemService(AppOpsManager::class.java).checkOpNoThrow(
             AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), context.packageName
         ) == AppOpsManager.MODE_ALLOWED
 
-    fun read(context: Context, kind: WidgetKind): Reading = when (kind) {
-        WidgetKind.UNLOCKS -> unlocks(context)
-        WidgetKind.BATTERY -> {
-            val level = context.getSystemService(BatteryManager::class.java)
-                .getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
-            Reading(if (level in 0..100) "$level%" else "—", "Battery remaining")
-        }
-        WidgetKind.DATE -> {
-            val today = LocalDate.now()
-            Reading(today.dayOfMonth.toString(),
-                today.format(DateTimeFormatter.ofPattern("EEEE, MMMM", Locale.getDefault())))
-        }
-        WidgetKind.COUNTER -> Reading(counter(context).getLong("count", 0).toString(), "Tap to count")
-    }
-
-    private fun unlocks(context: Context): Reading {
-        if (!hasUsageAccess(context)) return Reading("—", "Enable Usage Access")
-        val midnight = LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+    fun read(context: Context): Reading {
+        if (!hasUsageAccess(context)) return Reading(null, emptyList(), "Enable Usage Access")
+        val zone = ZoneId.systemDefault()
+        val midnight = LocalDate.now(zone).atStartOfDay(zone).toInstant().toEpochMilli()
+        val now = System.currentTimeMillis()
+        val stats = context.getSystemService(UsageStatsManager::class.java)
         val events = try {
-            context.getSystemService(UsageStatsManager::class.java)
-                .queryEvents(midnight, System.currentTimeMillis())
+            if (Build.VERSION.SDK_INT >= 35) {
+                stats.queryEvents(android.app.usage.UsageEventsQuery.Builder(midnight, now)
+                    .setEventTypes(UsageEvents.Event.KEYGUARD_HIDDEN).build())
+            } else {
+                stats.queryEvents(midnight, now)
+            }
         } catch (_: SecurityException) {
             null
-        } ?: return Reading("—", "Unlocks unavailable")
+        } ?: return Reading(null, emptyList(), "Unlock count unavailable")
+
+        val buckets = IntArray(8)
         val event = UsageEvents.Event()
-        var count = 0
         while (events.getNextEvent(event)) {
-            if (event.eventType == UsageEvents.Event.KEYGUARD_HIDDEN) count++
+            if (event.eventType == UsageEvents.Event.KEYGUARD_HIDDEN) {
+                val hour = Instant.ofEpochMilli(event.timeStamp).atZone(zone).hour
+                buckets[hour / 3]++
+            }
         }
-        return Reading(count.toString(), "Phone unlocks today")
-    }
-
-    private fun counter(context: Context) = context.getSharedPreferences("counter", Context.MODE_PRIVATE)
-
-    fun increment(context: Context) {
-        val prefs = counter(context)
-        prefs.edit().putLong("count", prefs.getLong("count", 0) + 1).apply()
+        return Reading(buckets.sum(), buckets.toList(), "Unlocks today")
     }
 }
 
-abstract class GalleryWidget(private val kind: WidgetKind) : AppWidgetProvider() {
+internal const val PIN_UNLOCKS_WIDGET = "com.widgets.gallery.PIN_UNLOCKS_WIDGET"
+internal const val EXTRA_DESIGN = "design"
+internal const val EXTRA_LIGHT = "light"
+
+class UnlocksWidget : AppWidgetProvider() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action == PIN_LIGHT_WIDGET) {
+        if (intent.action == PIN_UNLOCKS_WIDGET) {
             val id = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
-            WidgetAppearance.save(context, kind, id, Appearance(light = true))
+            val design = Catalog.design(context, intent.getStringExtra(EXTRA_DESIGN).orEmpty())
+            WidgetAppearance.save(context, id, Appearance(light = intent.getBooleanExtra(EXTRA_LIGHT, false), design = design.id))
         } else {
             super.onReceive(context, intent)
         }
     }
 
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
-        updateWidgets(context, kind, ids)
+        UnlockRefresh.schedule(context)
+        refresh(context, null)
+    }
+
+    override fun onAppWidgetOptionsChanged(context: Context, manager: AppWidgetManager, id: Int, options: Bundle) {
+        refresh(context, intArrayOf(id))
+    }
+
+    private fun refresh(context: Context, targets: IntArray?) {
+        val pending = goAsync()
+        UnlockRefresh.enqueue(context, targets) { pending?.finish() }
     }
 
     override fun onDeleted(context: Context, ids: IntArray) {
         WidgetAppearance.remove(context, ids)
     }
 
-    override fun onAppWidgetOptionsChanged(context: Context, manager: AppWidgetManager, id: Int, options: Bundle) {
-        updateWidgets(context, kind, intArrayOf(id))
+    override fun onDisabled(context: Context) {
+        context.getSystemService(JobScheduler::class.java).cancel(UnlockRefresh.JOB_ID)
+    }
+
+    companion object {
+        fun component(context: Context) = ComponentName(context, UnlocksWidget::class.java)
     }
 }
 
-class UnlocksWidget : GalleryWidget(WidgetKind.UNLOCKS)
-class BatteryWidget : GalleryWidget(WidgetKind.BATTERY)
-class DateWidget : GalleryWidget(WidgetKind.DATE)
-class CounterWidget : GalleryWidget(WidgetKind.COUNTER) {
-    override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action == COUNT_ACTION) {
-            Readings.increment(context)
-            updateWidgets(context, WidgetKind.COUNTER)
-        } else {
-            super.onReceive(context, intent)
+internal object UnlockRefresh {
+    const val JOB_ID = 85
+    private val executor = Executors.newSingleThreadScheduledExecutor()
+
+    fun schedule(context: Context) {
+        val scheduler = context.getSystemService(JobScheduler::class.java)
+        if (scheduler.getPendingJob(JOB_ID) == null && ids(context).isNotEmpty()) {
+            scheduler.schedule(JobInfo.Builder(JOB_ID, ComponentName(context, UnlockRefreshJob::class.java))
+                .setPeriodic(TimeUnit.MINUTES.toMillis(15))
+                .setPersisted(true)
+                .build())
         }
     }
+
+    fun enqueue(
+        context: Context,
+        targets: IntArray? = null,
+        delayMillis: Long = 0,
+        complete: () -> Unit = {},
+    ) = executor.schedule({
+        try {
+            refresh(context.applicationContext, targets)
+        } finally {
+            complete()
+        }
+    }, delayMillis, TimeUnit.MILLISECONDS)
+
+    fun ids(context: Context): IntArray = AppWidgetManager.getInstance(context)
+        .getAppWidgetIds(UnlocksWidget.component(context))
+
+    private fun refresh(context: Context, targets: IntArray?) {
+        val manager = AppWidgetManager.getInstance(context)
+        val active = ids(context)
+        val updates = targets?.filter(active::contains)?.toIntArray() ?: active
+        if (updates.isEmpty()) return
+
+        val reading = Readings.read(context)
+        val click = PendingIntent.getActivity(context, 0,
+            Intent(context, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+        for (id in updates) {
+            val appearance = WidgetAppearance.read(context, id)
+            val design = Catalog.design(context, appearance.design)
+            val options = manager.getAppWidgetOptions(id)
+            fun render(size: SizeF) = previewWidget(context, design, reading, appearance, size).apply {
+                setOnClickPendingIntent(R.id.widget_art, click)
+            }
+            val sizes = if (Build.VERSION.SDK_INT >= 31) sizes(options) else emptyList()
+            val views = if (Build.VERSION.SDK_INT >= 31 && sizes.isNotEmpty()) {
+                RemoteViews(sizes.associateWith(::render))
+            } else {
+                val portrait = SizeF(
+                    options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 64).coerceAtLeast(32).toFloat(),
+                    options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, 64).coerceAtLeast(32).toFloat(),
+                )
+                val landscape = SizeF(
+                    options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, 64).coerceAtLeast(32).toFloat(),
+                    options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 64).coerceAtLeast(32).toFloat(),
+                )
+                RemoteViews(render(landscape), render(portrait))
+            }
+            manager.updateAppWidget(id, views)
+        }
+    }
+
+    @android.annotation.TargetApi(31)
+    @Suppress("DEPRECATION")
+    private fun sizes(options: Bundle): List<SizeF> =
+        options.getParcelableArrayList<SizeF>(AppWidgetManager.OPTION_APPWIDGET_SIZES)
+            .orEmpty().filter { it.width > 0 && it.height > 0 }.distinct().take(8)
 }
 
-class DateChangeReceiver : BroadcastReceiver() {
+class UnlockRefreshJob : JobService() {
+    private var work: java.util.concurrent.Future<*>? = null
+
+    override fun onStartJob(params: JobParameters): Boolean {
+        work = UnlockRefresh.enqueue(this) { jobFinished(params, false) }
+        return true
+    }
+
+    override fun onStopJob(params: JobParameters): Boolean {
+        work?.cancel(false)
+        return false
+    }
+}
+
+class UnlockDateReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {
-            Intent.ACTION_DATE_CHANGED, Intent.ACTION_TIME_CHANGED, Intent.ACTION_TIMEZONE_CHANGED -> {
-                updateWidgets(context, WidgetKind.DATE)
-                updateWidgets(context, WidgetKind.UNLOCKS)
+            Intent.ACTION_BOOT_COMPLETED, Intent.ACTION_DATE_CHANGED, Intent.ACTION_TIME_CHANGED,
+            Intent.ACTION_TIMEZONE_CHANGED -> Unit
+            else -> return
+        }
+        val pending = goAsync()
+        UnlockRefresh.schedule(context)
+        UnlockRefresh.enqueue(context) { pending.finish() }
+    }
+}
+
+class WidgetsApp : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                if (intent.action != Intent.ACTION_USER_PRESENT) return
+                val pending = goAsync()
+                UnlockRefresh.enqueue(context, delayMillis = 500) { pending.finish() }
             }
         }
+        val filter = IntentFilter(Intent.ACTION_USER_PRESENT)
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(receiver, filter, RECEIVER_NOT_EXPORTED)
+        else @Suppress("UnspecifiedRegisterReceiverFlag") registerReceiver(receiver, filter)
     }
 }
 
-internal const val PIN_LIGHT_WIDGET = "com.widgets.gallery.PIN_LIGHT_WIDGET"
-private const val COUNT_ACTION = "com.widgets.gallery.INCREMENT"
-
-fun updateWidgets(context: Context, kind: WidgetKind, ids: IntArray? = null, reading: Reading? = null) {
-    val manager = AppWidgetManager.getInstance(context)
-    val targetIds = ids ?: manager.getAppWidgetIds(kind.component(context))
-    if (targetIds.isEmpty()) return
-    val value = reading ?: Readings.read(context, kind)
-    val click = if (kind == WidgetKind.COUNTER) {
-        PendingIntent.getBroadcast(context, 0, Intent(context, CounterWidget::class.java).setAction(COUNT_ACTION),
-            PendingIntent.FLAG_IMMUTABLE)
-    } else {
-        PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java),
-            PendingIntent.FLAG_IMMUTABLE)
-    }
-
-    for (id in targetIds) {
-        val appearance = WidgetAppearance.read(context, id)
-        val views = widgetViews(context, kind, value, appearance).apply {
-            setOnClickPendingIntent(android.R.id.background, click)
-        }
-        manager.updateAppWidget(id, views)
-    }
-}
-
-internal fun widgetViews(
+internal fun previewWidget(
     context: Context,
-    kind: WidgetKind,
+    design: Design,
     reading: Reading,
-    appearance: Appearance = Appearance(),
-): RemoteViews {
-    return RemoteViews(context.packageName, R.layout.widget).apply {
-        setImageViewResource(R.id.widget_surface, appearance.surface)
-        setInt(R.id.widget_surface, "setImageAlpha", appearance.alpha)
-        setTextColor(R.id.widget_value, appearance.valueColor)
-        setTextColor(R.id.widget_label, appearance.labelColor)
-        setImageViewResource(R.id.widget_icon, kind.icon)
-        setTextViewText(R.id.widget_value, reading.value)
-        setTextViewText(R.id.widget_label, reading.label)
-    }
+    appearance: Appearance,
+    size: SizeF = SizeF(100f, 100f),
+): RemoteViews = RemoteViews(context.packageName, R.layout.widget).apply {
+    setImageViewBitmap(R.id.widget_art, UnlockArt.bitmap(size, design, reading, appearance))
+    setContentDescription(R.id.widget_art, reading.accessibilityLabel)
 }

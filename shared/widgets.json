@@ -1,6 +1,7 @@
 [
-  {"id": "unlocks", "title": "Phone unlocks", "sample": "85", "label": "Phone unlocks today", "description": "See how often you unlock your phone today.", "category": "Activity", "color": "#ffc478"},
-  {"id": "battery", "title": "Battery", "sample": "76%", "label": "Battery remaining", "description": "Check your battery level at a glance.", "category": "Device", "color": "#c5ed9e"},
-  {"id": "date", "title": "Date", "sample": "19", "label": "Thursday, November", "description": "Keep today's date on your home screen.", "category": "Time", "color": "#afd3fb"},
-  {"id": "counter", "title": "Tap counter", "sample": "12", "label": "Tap to count", "description": "Count anything with a tap on your home screen.", "category": "Activity", "color": "#f8fafc"}
+  {"id":"classic","title":"Classic","description":"An amber lock and a quiet, oversized count.","color":"#ffc478"},
+  {"id":"signal","title":"Signal","description":"Eight bars show when you unlocked your phone.","color":"#d6f6a2"},
+  {"id":"orbit","title":"Orbit","description":"The count sits inside a pair of fine blue rings.","color":"#afd3fb"},
+  {"id":"ticket","title":"Ticket","description":"A perforated edge and a punchy pink accent.","color":"#ffb7cd"},
+  {"id":"terminal","title":"Terminal","description":"A monospace counter with a pale mint cursor.","color":"#8ee7cd"}
 ]

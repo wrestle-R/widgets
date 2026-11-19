@@ -1,8 +1,5 @@
 <resources>
     <string name="app_name">Widgets</string>
-    <string name="unlocks_name">Phone unlocks</string>
-    <string name="battery_name">Battery</string>
-    <string name="date_name">Date</string>
-    <string name="counter_name">Tap counter</string>
+    <string name="unlocks_name">App Unlocks</string>
     <string name="widget_opacity_value">Background opacity   %1$d%%</string>
 </resources>

@@ -15,3 +15,5 @@ next/public/widgets.apk
 next/next-env.d.ts
 
 /kotlin/.signing/
+
+/.vercel/

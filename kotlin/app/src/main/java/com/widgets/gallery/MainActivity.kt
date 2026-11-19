@@ -13,6 +13,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.util.SizeF
 import android.view.Gravity
 import android.view.View
 import android.view.WindowInsets
@@ -22,20 +23,22 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.SeekBar
-import android.widget.TextView
 import android.widget.Toast
 import java.util.UUID
 import kotlin.math.min
 
 class MainActivity : Activity() {
-    private data class PlacedWidget(val kind: WidgetKind, val id: Int, val name: String)
-
     private val ui by lazy { GalleryStyle(this) }
     private val manager by lazy { AppWidgetManager.getInstance(this) }
     private lateinit var scroll: ScrollView
     private lateinit var content: LinearLayout
     private lateinit var body: LinearLayout
-    private var kind = WidgetKind.UNLOCKS
+    private var designId = "classic"
+    private var columns = 2
+    private var rows = 2
+    private var reading = Reading.sample
+    private val previewSize: SizeF
+        get() = SizeF(columns * 62f, rows * 62f)
     private var onHome = false
     private var selectedId = AppWidgetManager.INVALID_APPWIDGET_ID
     private var draft: Appearance? = null
@@ -55,12 +58,14 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         restoredScroll = savedInstanceState?.getInt("scrollY")
-        kind = WidgetKind.entries.firstOrNull { it.key == savedInstanceState?.getString("kind") }
-            ?: WidgetKind.UNLOCKS
+        designId = savedInstanceState?.getString("designId") ?: "classic"
+        columns = savedInstanceState?.getInt("columns", 2)?.coerceIn(1, 4) ?: 2
+        rows = savedInstanceState?.getInt("rows", 2)?.coerceIn(1, 4) ?: 2
         onHome = savedInstanceState?.getBoolean("onHome") ?: false
         selectedId = savedInstanceState?.getInt("selectedId") ?: AppWidgetManager.INVALID_APPWIDGET_ID
         if (savedInstanceState?.containsKey("opacity") == true) {
-            draft = Appearance(savedInstanceState.getInt("opacity"), savedInstanceState.getBoolean("light"))
+            draft = Appearance(savedInstanceState.getInt("opacity"), savedInstanceState.getBoolean("light"),
+                savedInstanceState.getString("draftDesign") ?: "classic")
         }
 
         content = ui.column().apply { setPadding(ui.dp(20), ui.dp(14), ui.dp(20), ui.dp(26)) }
@@ -85,19 +90,24 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        for (widget in WidgetKind.entries) updateWidgets(this, widget)
+        reading = Readings.read(this)
+        UnlockRefresh.schedule(this)
+        UnlockRefresh.enqueue(this)
         render(preserveScroll = true)
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
-        outState.putString("kind", kind.key)
+        outState.putString("designId", designId)
+        outState.putInt("columns", columns)
+        outState.putInt("rows", rows)
         outState.putBoolean("onHome", onHome)
         outState.putInt("scrollY", scroll.scrollY)
         outState.putInt("selectedId", selectedId)
         draft?.let {
             outState.putInt("opacity", it.opacity)
             outState.putBoolean("light", it.light)
+            outState.putString("draftDesign", it.design)
         }
     }
 
@@ -153,82 +163,48 @@ class MainActivity : Activity() {
     }
 
     private fun renderGallery() = with(ui) {
-        val current = kind
-        val details = Catalog.details(this@MainActivity, current)
-        val needsAccess = current == WidgetKind.UNLOCKS && !Readings.hasUsageAccess(this@MainActivity)
-        val reading = if (needsAccess) details.sample else Readings.read(this@MainActivity, current)
-
-        body.place(text("Widget gallery", 38, heading = true))
-        val preview = widgetPreview(current, reading).apply {
-            styleWidget(this, Appearance(light = !dark))
-            if (current == WidgetKind.COUNTER) {
-                isFocusable = true
-                contentDescription = "Count is ${reading.value}. Add one"
-                setOnClickListener {
-                    Readings.increment(this@MainActivity)
-                    updateWidgets(this@MainActivity, current)
-                    render(preserveScroll = true)
-                }
-            }
+        val design = Catalog.design(this@MainActivity, designId)
+        val appearance = Appearance(light = !dark, design = design.id)
+        val useSample = reading.count == null
+        val preview = ImageView(this@MainActivity)
+        val size = previewSize
+        updatePreview(preview, appearance, size, if (useSample) Reading.sample else reading)
+        body.place(text("App Unlocks", 38, heading = true))
+        body.place(text("Count how often you unlock your phone.", 15, muted), top = 5)
+        body.place(previewStage(preview, appearance, size, useSample), top = 16, height = 270)
+        showDesignChoices(design.id) {
+            designId = it
+            render(preserveScroll = true)
         }
-        body.place(previewStage(preview, side = 166, sample = needsAccess), top = 16, height = 246)
-
-        val selectors = WidgetKind.entries.map { item ->
-            val label = when (item) {
-                WidgetKind.UNLOCKS -> "Unlocks"
-                WidgetKind.BATTERY -> "Battery"
-                WidgetKind.DATE -> "Date"
-                WidgetKind.COUNTER -> "Counter"
-            }
-            button(label, selected = item == current) {
-                if (kind != item) {
-                    kind = item
-                    render(preserveScroll = true)
-                }
-            }.apply {
-                val icon = getDrawable(item.icon)?.mutate()?.apply {
-                    setBounds(0, 0, dp(18), dp(18))
-                    setTint(if (item == current) accent else muted)
-                }
-                setCompoundDrawablesRelative(null, icon, null, null)
-                compoundDrawablePadding = dp(4)
-                setPadding(dp(2), dp(8), dp(2), dp(8))
-                textSize = 12f
-            }
-        }
-        val controlsPerRow = if (resources.configuration.screenWidthDp < 340 ||
-            resources.configuration.fontScale >= 1.4f) 2 else 4
-        selectors.chunked(controlsPerRow).forEach { row -> body.place(equalRow(row), top = 10) }
-        body.place(text(details.title, 27, heading = true), top = 21)
-        body.place(text(details.description, 14, muted), top = 6)
-        body.place(button("Add to home", primary = true) { pin(current) }, top = 16)
-        if (needsAccess) {
+        body.place(text(design.description, 14, muted), top = 12)
+        showSizes()
+        body.place(button("Add to home", primary = true) { pin(design, appearance) }, top = 16)
+        if (!Readings.hasUsageAccess(this@MainActivity)) {
             body.place(button("Enable Usage Access") { askForUsageAccess() }, top = 8)
         }
     }
 
     private fun renderHome() = with(ui) {
-        val placed = WidgetKind.entries.flatMap { item ->
-            val title = Catalog.details(this@MainActivity, item).title
-            val ids = manager.getAppWidgetIds(item.component(this@MainActivity)).sorted()
-            ids.mapIndexed { index, id -> PlacedWidget(item, id, if (ids.size == 1) title else "$title ${index + 1}") }
-        }
-        body.place(text("On your home screen", 36, heading = true))
+        val placed = UnlockRefresh.ids(this@MainActivity).sorted()
+        body.place(text("On your home screen", 35, heading = true))
         if (placed.isEmpty()) {
-            body.place(text("Add a widget to change its theme and opacity here.", 15, muted), top = 10)
-            body.place(button("Browse gallery", primary = true) { showHome(false) }, top = 20)
+            body.place(text("Add App Unlocks to customize it here.", 15, muted), top = 10)
+            body.place(button("Browse designs", primary = true) { showHome(false) }, top = 16)
             return@with
         }
-        val selected = placed.firstOrNull { it.id == selectedId } ?: placed.first().also {
-            selectedId = it.id
+
+        val id = placed.firstOrNull { it == selectedId } ?: placed.first().also {
+            selectedId = it
             draft = null
         }
         if (placed.size > 1) {
-            for (items in placed.chunked(2)) {
-                body.place(equalRow(items.map { widget ->
-                    button(widget.name, selected = widget.id == selectedId) {
-                        if (selectedId != widget.id) {
-                            selectedId = widget.id
+            placed.chunked(2).forEach { row ->
+                body.place(equalRow(row.map { widgetId ->
+                    val savedDesign = WidgetAppearance.read(this@MainActivity, widgetId).design
+                    val name = Catalog.design(this@MainActivity, savedDesign).title
+                    button("${placed.indexOf(widgetId) + 1} · $name", selected = widgetId == id) {
+                        if (selectedId != widgetId) {
+                            selectedId = widgetId
                             draft = null
                             render(preserveScroll = true)
                         }
@@ -237,22 +213,24 @@ class MainActivity : Activity() {
             }
         }
 
-        val saved = WidgetAppearance.read(this@MainActivity, selected.id)
+        val saved = WidgetAppearance.read(this@MainActivity, id)
         val appearance = draft ?: saved
-        val preview = widgetPreview(selected.kind, Readings.read(this@MainActivity, selected.kind))
-        styleWidget(preview, appearance)
-        body.place(previewStage(preview, side = 140), top = 16, height = 204)
-        body.place(text(selected.name, 26, heading = true), top = 18)
-
+        val preview = ImageView(this@MainActivity)
+        val size = previewSize
+        updatePreview(preview, appearance, size, reading)
+        body.place(previewStage(preview, appearance, size), top = 16, height = 270)
+        showSizes()
+        showDesignChoices(appearance.design) { changeDraft(appearance.copy(design = it)) }
         body.place(equalRow(listOf(
-            button("Dark widget", selected = !appearance.light) { changeTheme(appearance = false, saved) },
-            button("Light widget", selected = appearance.light) { changeTheme(appearance = true, saved) },
+            button("Dark widget", selected = !appearance.light) { changeDraft(appearance.copy(light = false)) },
+            button("Light widget", selected = appearance.light) { changeDraft(appearance.copy(light = true)) },
         )), top = 12)
+
         val opacity = text(getString(R.string.widget_opacity_value, appearance.opacity), 14)
         body.place(opacity, top = 16)
         val save = button("Save appearance", primary = true) {
             val change = draft ?: return@button
-            val updated = WidgetAppearance.save(this@MainActivity, selected.kind, selected.id, change)
+            val updated = WidgetAppearance.save(this@MainActivity, id, change)
             draft = null
             render(preserveScroll = true)
             Toast.makeText(this@MainActivity, if (updated) "Appearance saved" else "Widget removed", Toast.LENGTH_SHORT).show()
@@ -272,7 +250,7 @@ class MainActivity : Activity() {
                     val change = (draft ?: saved).copy(opacity = value)
                     draft = change
                     opacity.text = getString(R.string.widget_opacity_value, value)
-                    styleWidget(preview, change)
+                    updatePreview(preview, change, size, reading)
                     save.isEnabled = change != saved
                 }
                 override fun onStartTrackingTouch(bar: SeekBar) = Unit
@@ -280,39 +258,62 @@ class MainActivity : Activity() {
             })
         }, top = 2)
         body.place(save, top = 8)
+        body.place(text("To resize a placed widget, touch and hold it on your home screen.", 13, muted), top = 12)
     }
 
-    private fun changeTheme(appearance: Boolean, saved: Appearance) {
-        draft = (draft ?: saved).copy(light = appearance)
+    private fun showDesignChoices(current: String, select: (String) -> Unit) = with(ui) {
+        Catalog.designs(this@MainActivity).chunked(3).forEach { group ->
+            body.place(equalRow(group.map { design ->
+                button(design.title, selected = design.id == current) { select(design.id) }
+            }), top = 8)
+        }
+    }
+
+    private fun showSizes() = with(ui) {
+        body.place(text("Preview size", 14), top = 15)
+        body.place(sizeRow("Width", columns) { columns = it }, top = 6)
+        body.place(sizeRow("Height", rows) { rows = it }, top = 6)
+    }
+
+    private fun sizeRow(axis: String, selected: Int, change: (Int) -> Unit) = with(ui) {
+        LinearLayout(this@MainActivity).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            addView(text(axis, 13, muted), LinearLayout.LayoutParams(dp(56), -2))
+            addView(equalRow((1..4).map { cells ->
+                button(cells.toString(), selected = cells == selected) {
+                    if (cells != selected) {
+                        change(cells)
+                        render(preserveScroll = true)
+                    }
+                }.apply { contentDescription = "$axis $cells cells" }
+            }), LinearLayout.LayoutParams(0, -2, 1f))
+        }
+    }
+
+    private fun changeDraft(appearance: Appearance) {
+        draft = appearance
         render(preserveScroll = true)
     }
 
-    private fun widgetPreview(item: WidgetKind, reading: Reading): View =
-        layoutInflater.inflate(R.layout.widget, FrameLayout(this), false).apply {
-            findViewById<ImageView>(R.id.widget_icon).setImageResource(item.icon)
-            findViewById<TextView>(R.id.widget_value).text = reading.value
-            findViewById<TextView>(R.id.widget_label).text = reading.label
-        }
-
-    private fun styleWidget(view: View, appearance: Appearance) {
-        view.findViewById<ImageView>(R.id.widget_surface).apply {
-            setImageResource(appearance.surface)
-            imageAlpha = appearance.alpha
-        }
-        view.findViewById<TextView>(R.id.widget_value).setTextColor(appearance.valueColor)
-        view.findViewById<TextView>(R.id.widget_label).setTextColor(appearance.labelColor)
+    private fun updatePreview(view: ImageView, appearance: Appearance, size: SizeF, reading: Reading) {
+        val design = Catalog.design(this, appearance.design)
+        view.setImageBitmap(UnlockArt.bitmap(size, design, reading, appearance))
+        view.contentDescription = reading.accessibilityLabel
     }
 
-    private fun previewStage(preview: View, side: Int, sample: Boolean = false) = with(ui) {
+    private fun previewStage(preview: ImageView, appearance: Appearance, size: SizeF, sample: Boolean = false) = with(ui) {
         FrameLayout(this@MainActivity).apply {
             background = shape(panel, 24, line)
             clipToOutline = true
             addView(ImageView(this@MainActivity).apply {
-                setImageResource(if (dark) R.drawable.gallery_art else R.drawable.gallery_art_light)
+                setImageResource(if (appearance.light) R.drawable.gallery_art_light else R.drawable.gallery_art)
                 scaleType = ImageView.ScaleType.CENTER_CROP
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             }, FrameLayout.LayoutParams(-1, -1))
-            addView(preview, FrameLayout.LayoutParams(dp(side), dp(side), Gravity.CENTER))
+            val fit = min(1f, (resources.configuration.screenWidthDp - 64).coerceAtLeast(120) / size.width)
+            addView(preview, FrameLayout.LayoutParams(
+                dp((size.width * fit).toInt()), dp((size.height * fit).toInt()), Gravity.CENTER,
+            ))
             if (sample) {
                 addView(text("Sample preview", 12).apply {
                     background = shape(panel, 7, line)
@@ -347,31 +348,28 @@ class MainActivity : Activity() {
             }.show()
     }
 
-    private fun pin(item: WidgetKind) {
-        val details = Catalog.details(this, item)
+    private fun pin(design: Design, appearance: Appearance) {
         if (manager.isRequestPinAppWidgetSupported) {
-            val appearance = Appearance(light = !ui.dark)
             val extras = Bundle().apply {
-                putParcelable(AppWidgetManager.EXTRA_APPWIDGET_PREVIEW, widgetViews(this@MainActivity, item, details.sample, appearance))
+                putParcelable(AppWidgetManager.EXTRA_APPWIDGET_PREVIEW,
+                    previewWidget(this@MainActivity, design, if (reading.count == null) Reading.sample else reading,
+                        appearance, SizeF(60f, 60f)))
             }
-            val callback = if (appearance.light) lightPinCallback(item) else null
-            if (manager.requestPinAppWidget(item.component(this), extras, callback)) return
-            callback?.cancel()
+            val intent = Intent(this, UnlocksWidget::class.java).apply {
+                action = PIN_UNLOCKS_WIDGET
+                data = Uri.fromParts("widgets", UUID.randomUUID().toString(), null)
+                putExtra(EXTRA_DESIGN, design.id)
+                putExtra(EXTRA_LIGHT, appearance.light)
+            }
+            // The launcher fills in the new widget ID.
+            val mutable = if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0
+            val callback = PendingIntent.getBroadcast(this, 0, intent, mutable or PendingIntent.FLAG_ONE_SHOT)
+            if (manager.requestPinAppWidget(UnlocksWidget.component(this), extras, callback)) return
+            callback.cancel()
         }
 
-        AlertDialog.Builder(this).setTitle("Add ${details.title}")
-            .setMessage("Touch and hold an empty spot on your home screen. Open the widget picker and find ${details.title}.")
+        AlertDialog.Builder(this).setTitle("Add App Unlocks")
+            .setMessage("Touch and hold an empty spot on your home screen. Open the widget picker and find App Unlocks.")
             .setPositiveButton("Got it", null).show()
     }
-
-    private fun lightPinCallback(item: WidgetKind): PendingIntent {
-        val intent = Intent(this, item.provider).apply {
-            action = PIN_LIGHT_WIDGET
-            data = Uri.fromParts("widgets", UUID.randomUUID().toString(), null)
-        }
-        // The launcher adds the newly assigned widget ID to the callback intent.
-        val mutable = if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0
-        return PendingIntent.getBroadcast(this, 0, intent, mutable or PendingIntent.FLAG_ONE_SHOT)
-    }
-
 }
