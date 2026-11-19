@@ -1,0 +1,15 @@
+/local-docs/
+**/.env*
+!**/.env.example
+node_modules/
+.next/
+**/.gradle/
+**/.kotlin/
+**/build/
+**/local.properties
+**/.idea/
+next/out/
+next/public/widgets.apk
+
+*.tsbuildinfo
+next/next-env.d.ts

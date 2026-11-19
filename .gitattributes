@@ -1,0 +1,2 @@
+*.bat text eol=crlf
+/kotlin/gradlew text eol=lf
