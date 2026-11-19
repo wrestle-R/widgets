@@ -6,6 +6,9 @@ import kotlin.math.roundToInt
 
 internal data class Appearance(val opacity: Int = 100, val light: Boolean = false) {
     val alpha: Int get() = (opacity * 255 / 100f).roundToInt()
+    val surface: Int get() = if (light) R.drawable.widget_background_light else R.drawable.widget_background
+    val valueColor: Int get() = if (light) 0xff191d19.toInt() else 0xffffffff.toInt()
+    val labelColor: Int get() = if (light) 0xff343c35.toInt() else 0xffbfc4ca.toInt()
 }
 
 internal object WidgetAppearance {

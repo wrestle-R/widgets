@@ -101,6 +101,15 @@ object Readings {
 }
 
 abstract class GalleryWidget(private val kind: WidgetKind) : AppWidgetProvider() {
+    override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action == PIN_LIGHT_WIDGET) {
+            val id = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
+            WidgetAppearance.save(context, kind, id, Appearance(light = true))
+        } else {
+            super.onReceive(context, intent)
+        }
+    }
+
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
         updateWidgets(context, kind, ids)
     }
@@ -139,6 +148,7 @@ class DateChangeReceiver : BroadcastReceiver() {
     }
 }
 
+internal const val PIN_LIGHT_WIDGET = "com.widgets.gallery.PIN_LIGHT_WIDGET"
 private const val COUNT_ACTION = "com.widgets.gallery.INCREMENT"
 
 fun updateWidgets(context: Context, kind: WidgetKind, ids: IntArray? = null, reading: Reading? = null) {
@@ -156,21 +166,24 @@ fun updateWidgets(context: Context, kind: WidgetKind, ids: IntArray? = null, rea
 
     for (id in targetIds) {
         val appearance = WidgetAppearance.read(context, id)
-        val views = widgetViews(context, kind, value).apply {
-            if (appearance.light) {
-                setImageViewResource(R.id.widget_surface, R.drawable.widget_background_light)
-                setTextColor(R.id.widget_value, 0xff191d19.toInt())
-                setTextColor(R.id.widget_label, 0xff343c35.toInt())
-            }
-            setInt(R.id.widget_surface, "setImageAlpha", appearance.alpha)
+        val views = widgetViews(context, kind, value, appearance).apply {
             setOnClickPendingIntent(android.R.id.background, click)
         }
         manager.updateAppWidget(id, views)
     }
 }
 
-fun widgetViews(context: Context, kind: WidgetKind, reading: Reading): RemoteViews {
+internal fun widgetViews(
+    context: Context,
+    kind: WidgetKind,
+    reading: Reading,
+    appearance: Appearance = Appearance(),
+): RemoteViews {
     return RemoteViews(context.packageName, R.layout.widget).apply {
+        setImageViewResource(R.id.widget_surface, appearance.surface)
+        setInt(R.id.widget_surface, "setImageAlpha", appearance.alpha)
+        setTextColor(R.id.widget_value, appearance.valueColor)
+        setTextColor(R.id.widget_label, appearance.labelColor)
         setImageViewResource(R.id.widget_icon, kind.icon)
         setTextViewText(R.id.widget_value, reading.value)
         setTextViewText(R.id.widget_label, reading.label)

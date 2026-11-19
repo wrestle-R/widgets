@@ -2,10 +2,15 @@ package com.widgets.gallery
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.content.ActivityNotFoundException
+import android.content.Context
 import android.content.Intent
 import android.content.res.ColorStateList
+import android.content.res.Configuration
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.view.Gravity
@@ -19,6 +24,7 @@ import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
+import java.util.UUID
 import kotlin.math.min
 
 class MainActivity : Activity() {
@@ -33,8 +39,22 @@ class MainActivity : Activity() {
     private var onHome = false
     private var selectedId = AppWidgetManager.INVALID_APPWIDGET_ID
     private var draft: Appearance? = null
+    private var restoredScroll: Int? = null
+
+    override fun attachBaseContext(base: Context) {
+        val mode = base.getSharedPreferences("app_appearance", MODE_PRIVATE)
+            .getInt("night_mode", Configuration.UI_MODE_NIGHT_UNDEFINED)
+        if (mode == Configuration.UI_MODE_NIGHT_UNDEFINED) {
+            super.attachBaseContext(base)
+            return
+        }
+        val configuration = Configuration().apply { uiMode = mode }
+        super.attachBaseContext(base.createConfigurationContext(configuration))
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        restoredScroll = savedInstanceState?.getInt("scrollY")
         kind = WidgetKind.entries.firstOrNull { it.key == savedInstanceState?.getString("kind") }
             ?: WidgetKind.UNLOCKS
         onHome = savedInstanceState?.getBoolean("onHome") ?: false
@@ -73,6 +93,7 @@ class MainActivity : Activity() {
         super.onSaveInstanceState(outState)
         outState.putString("kind", kind.key)
         outState.putBoolean("onHome", onHome)
+        outState.putInt("scrollY", scroll.scrollY)
         outState.putInt("selectedId", selectedId)
         draft?.let {
             outState.putInt("opacity", it.opacity)
@@ -81,15 +102,11 @@ class MainActivity : Activity() {
     }
 
     private fun render(preserveScroll: Boolean = false) {
-        val offset = if (preserveScroll) scroll.scrollY else 0
+        val offset = restoredScroll ?: if (preserveScroll) scroll.scrollY else 0
+        restoredScroll = null
         content.removeAllViews()
         with(ui) {
-            content.place(text("Widgets", 20, heading = true).apply {
-                val mark = getDrawable(R.drawable.app_icon)?.apply { setBounds(0, 0, dp(28), dp(28)) }
-                setCompoundDrawablesRelative(mark, null, null, null)
-                compoundDrawablePadding = dp(8)
-                gravity = Gravity.CENTER_VERTICAL
-            })
+            content.place(header())
             content.place(equalRow(listOf(
                 button("Gallery", selected = !onHome) { showHome(false) },
                 button("On home", selected = onHome) { showHome(true) },
@@ -99,6 +116,34 @@ class MainActivity : Activity() {
         }
         if (onHome) renderHome() else renderGallery()
         scroll.post { scroll.scrollTo(0, offset) }
+    }
+
+    private fun header() = with(ui) {
+        LinearLayout(this@MainActivity).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            addView(text("Widgets", 20, heading = true).apply {
+                val mark = getDrawable(R.drawable.app_icon)?.apply { setBounds(0, 0, dp(28), dp(28)) }
+                setCompoundDrawablesRelative(mark, null, null, null)
+                compoundDrawablePadding = dp(8)
+                gravity = Gravity.CENTER_VERTICAL
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+            val target = if (dark) "Light" else "Dark"
+            addView(button(target) { toggleTheme() }.apply {
+                contentDescription = "Switch to ${target.lowercase()} mode"
+                val icon = getDrawable(if (dark) R.drawable.ic_sun else R.drawable.ic_moon)?.mutate()?.apply {
+                    setBounds(0, 0, dp(17), dp(17))
+                    setTint(accent)
+                }
+                setCompoundDrawablesRelative(icon, null, null, null)
+                compoundDrawablePadding = dp(6)
+            }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
+        }
+    }
+
+    private fun toggleTheme() {
+        val mode = if (ui.dark) Configuration.UI_MODE_NIGHT_NO else Configuration.UI_MODE_NIGHT_YES
+        getSharedPreferences("app_appearance", MODE_PRIVATE).edit().putInt("night_mode", mode).apply()
+        recreate()
     }
 
     private fun showHome(value: Boolean) {
@@ -115,6 +160,7 @@ class MainActivity : Activity() {
 
         body.place(text("Widget gallery", 38, heading = true))
         val preview = widgetPreview(current, reading).apply {
+            styleWidget(this, Appearance(light = !dark))
             if (current == WidgetKind.COUNTER) {
                 isFocusable = true
                 contentDescription = "Count is ${reading.value}. Add one"
@@ -212,7 +258,6 @@ class MainActivity : Activity() {
             Toast.makeText(this@MainActivity, if (updated) "Appearance saved" else "Widget removed", Toast.LENGTH_SHORT).show()
         }
         save.isEnabled = appearance != saved
-        save.alpha = if (save.isEnabled) 1f else .65f
         body.place(SeekBar(this@MainActivity).apply {
             min = WidgetAppearance.MIN_OPACITY
             max = WidgetAppearance.MAX_OPACITY
@@ -229,7 +274,6 @@ class MainActivity : Activity() {
                     opacity.text = getString(R.string.widget_opacity_value, value)
                     styleWidget(preview, change)
                     save.isEnabled = change != saved
-                    save.alpha = if (save.isEnabled) 1f else .65f
                 }
                 override fun onStartTrackingTouch(bar: SeekBar) = Unit
                 override fun onStopTrackingTouch(bar: SeekBar) = Unit
@@ -252,30 +296,26 @@ class MainActivity : Activity() {
 
     private fun styleWidget(view: View, appearance: Appearance) {
         view.findViewById<ImageView>(R.id.widget_surface).apply {
-            setImageResource(if (appearance.light) R.drawable.widget_background_light else R.drawable.widget_background)
+            setImageResource(appearance.surface)
             imageAlpha = appearance.alpha
         }
-        view.findViewById<TextView>(R.id.widget_value).setTextColor(
-            if (appearance.light) 0xff191d19.toInt() else 0xffffffff.toInt()
-        )
-        view.findViewById<TextView>(R.id.widget_label).setTextColor(
-            if (appearance.light) 0xff343c35.toInt() else 0xffbfc4ca.toInt()
-        )
+        view.findViewById<TextView>(R.id.widget_value).setTextColor(appearance.valueColor)
+        view.findViewById<TextView>(R.id.widget_label).setTextColor(appearance.labelColor)
     }
 
     private fun previewStage(preview: View, side: Int, sample: Boolean = false) = with(ui) {
         FrameLayout(this@MainActivity).apply {
-            background = shape(0xff242a2d.toInt(), 24, line)
+            background = shape(panel, 24, line)
             clipToOutline = true
             addView(ImageView(this@MainActivity).apply {
-                setImageResource(R.drawable.gallery_art)
+                setImageResource(if (dark) R.drawable.gallery_art else R.drawable.gallery_art_light)
                 scaleType = ImageView.ScaleType.CENTER_CROP
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             }, FrameLayout.LayoutParams(-1, -1))
             addView(preview, FrameLayout.LayoutParams(dp(side), dp(side), Gravity.CENTER))
             if (sample) {
-                addView(text("Sample preview", 12, 0xfff4f5f4.toInt()).apply {
-                    background = shape(0xe8171b1d.toInt(), 7)
+                addView(text("Sample preview", 12).apply {
+                    background = shape(panel, 7, line)
                     setPadding(dp(8), dp(5), dp(8), dp(5))
                 }, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.END).apply {
                     marginEnd = dp(12)
@@ -309,14 +349,29 @@ class MainActivity : Activity() {
 
     private fun pin(item: WidgetKind) {
         val details = Catalog.details(this, item)
-        val extras = Bundle().apply {
-            putParcelable(AppWidgetManager.EXTRA_APPWIDGET_PREVIEW, widgetViews(this@MainActivity, item, details.sample))
+        if (manager.isRequestPinAppWidgetSupported) {
+            val appearance = Appearance(light = !ui.dark)
+            val extras = Bundle().apply {
+                putParcelable(AppWidgetManager.EXTRA_APPWIDGET_PREVIEW, widgetViews(this@MainActivity, item, details.sample, appearance))
+            }
+            val callback = if (appearance.light) lightPinCallback(item) else null
+            if (manager.requestPinAppWidget(item.component(this), extras, callback)) return
+            callback?.cancel()
         }
-        if (manager.isRequestPinAppWidgetSupported &&
-            manager.requestPinAppWidget(item.component(this), extras, null)) return
 
         AlertDialog.Builder(this).setTitle("Add ${details.title}")
             .setMessage("Touch and hold an empty spot on your home screen. Open the widget picker and find ${details.title}.")
             .setPositiveButton("Got it", null).show()
     }
+
+    private fun lightPinCallback(item: WidgetKind): PendingIntent {
+        val intent = Intent(this, item.provider).apply {
+            action = PIN_LIGHT_WIDGET
+            data = Uri.fromParts("widgets", UUID.randomUUID().toString(), null)
+        }
+        // The launcher adds the newly assigned widget ID to the callback intent.
+        val mutable = if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0
+        return PendingIntent.getBroadcast(this, 0, intent, mutable or PendingIntent.FLAG_ONE_SHOT)
+    }
+
 }

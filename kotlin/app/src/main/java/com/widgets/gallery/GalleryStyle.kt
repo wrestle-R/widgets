@@ -6,6 +6,7 @@ import android.content.res.Configuration
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
+import android.graphics.drawable.StateListDrawable
 import android.view.Gravity
 import android.view.View
 import android.widget.Button
@@ -61,11 +62,14 @@ internal class GalleryStyle(private val activity: Activity) {
             intArrayOf(muted, if (primary) onAccent else if (selected) accent else textColor)
         ))
         val fill = if (primary) accent else if (selected) selectedFill else panel
-        background = RippleDrawable(
-            ColorStateList.valueOf(if (primary == dark) 0x33000000 else 0x26ffffff),
-            shape(fill, 13, if (primary) null else if (selected) 0xff5b704d.toInt() else line),
-            null
-        )
+        background = StateListDrawable().apply {
+            addState(intArrayOf(-android.R.attr.state_enabled), shape(panel, 13, line))
+            addState(intArrayOf(), RippleDrawable(
+                ColorStateList.valueOf(if (primary == dark) 0x33000000 else 0x26ffffff),
+                shape(fill, 13, if (primary) null else if (selected) 0xff5b704d.toInt() else line),
+                null
+            ))
+        }
         setOnClickListener { action() }
     }
 
