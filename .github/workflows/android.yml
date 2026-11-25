@@ -23,6 +23,7 @@ jobs:
         with:
           distribution: temurin
           java-version: 21
+      - uses: android-actions/setup-android@138b5fb1cf087fdb4c5f3c621466fe304d0cf2e3 # v4.0.3
       - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
       - run: ./gradlew --no-daemon --max-workers=2 lintRelease assembleRelease
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
