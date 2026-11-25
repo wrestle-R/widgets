@@ -1,5 +1,6 @@
 package com.widgets.gallery
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.AlertDialog
@@ -8,6 +9,7 @@ import android.appwidget.AppWidgetManager
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.net.Uri
@@ -50,6 +52,7 @@ class MainActivity : Activity() {
     private var selectedId = AppWidgetManager.INVALID_APPWIDGET_ID
     private var draft: Appearance? = null
     private var restoredScroll: Int? = null
+    private val liveUnlockPermission = 86
 
     override fun attachBaseContext(base: Context) {
         val mode = base.getSharedPreferences("app_appearance", MODE_PRIVATE)
@@ -110,8 +113,33 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         reading = Readings.read(this)
+        if (LiveUnlockService.running && !Readings.hasUsageAccess(this)) LiveUnlockService.stop(this)
         UnlockRefresh.schedule(this)
         UnlockRefresh.enqueue(this)
+        render(preserveScroll = true)
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, results: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, results)
+        if (requestCode == liveUnlockPermission && results.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+            enableLiveUnlocks()
+        }
+    }
+
+    private fun enableLiveUnlocks() {
+        if (!Readings.hasUsageAccess(this)) {
+            askForUsageAccess()
+            return
+        }
+        if (UnlockRefresh.ids(this).isEmpty()) return
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), liveUnlockPermission)
+            return
+        }
+        if (!LiveUnlockService.start(this)) {
+            Toast.makeText(this, "Could not start live unlock updates", Toast.LENGTH_SHORT).show()
+        }
         render(preserveScroll = true)
     }
 
@@ -247,6 +275,15 @@ class MainActivity : Activity() {
             selectedId = it
             draft = null
         }
+        body.place(text("Update the counter after each unlock with a persistent notification.", 14, muted), top = 12)
+        body.place(button(if (LiveUnlockService.running) "Turn off live unlock count" else "Turn on live unlock count", quiet = true) {
+            if (LiveUnlockService.running) {
+                LiveUnlockService.stop(this@MainActivity)
+                render(preserveScroll = true)
+            } else {
+                enableLiveUnlocks()
+            }
+        }, top = 8)
         if (placed.size > 1) {
             placed.chunked(2).forEach { row ->
                 body.place(equalRow(row.map { widgetId ->

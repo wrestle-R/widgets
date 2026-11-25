@@ -131,6 +131,7 @@ class UnlocksWidget : AppWidgetProvider() {
 
     override fun onDisabled(context: Context) {
         context.getSystemService(JobScheduler::class.java).cancel(UnlockRefresh.JOB_ID)
+        LiveUnlockService.stop(context)
     }
 
     companion object {
@@ -242,6 +243,7 @@ class WidgetsApp : Application() {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
                 if (intent.action != Intent.ACTION_USER_PRESENT) return
+                if (LiveUnlockService.running && !Readings.hasUsageAccess(context)) LiveUnlockService.stop(context)
                 val pending = goAsync()
                 UnlockRefresh.enqueue(context, delayMillis = 500) { pending.finish() }
             }

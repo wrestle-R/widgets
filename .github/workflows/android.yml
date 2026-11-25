@@ -1,0 +1,32 @@
+name: Android
+on:
+  pull_request:
+    paths: ['kotlin/**', 'shared/**', '.github/workflows/android.yml']
+  push:
+    branches: [main]
+    paths: ['kotlin/**', 'shared/**', '.github/workflows/android.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  apk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: kotlin
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - run: ./gradlew --no-daemon --max-workers=2 lintRelease assembleRelease
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: widgets-android-unsigned
+          path: kotlin/app/build/outputs/apk/release/app-release-unsigned.apk
+          if-no-files-found: error
